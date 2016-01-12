@@ -13,3 +13,7 @@ def daily(output_dir, output_format, reach, total_conc, runoff_conc, runoff_mass
     fmt = ["%s","%f","%f","%f","%f","%f","%f"]
     out_values = np.array([dates, total_conc, runoff_mass, total_runoff, runoff_conc, total_flow, baseflow]).T
     np.savetxt(filename, out_values, delimiter=",", fmt=fmt, header=header, newline="\n", comments="")
+
+
+if __name__ == "__main__":
+    print("This is a library. Run pesticide_calculator.py or travel_time.py")

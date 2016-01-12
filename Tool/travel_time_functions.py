@@ -119,3 +119,6 @@ def trim_to_upstream(sam_output, sam_lookup, all_upstream):
     baseflow = sam_output[2, indices]
 
     return local_output, baseflow, local_lookup
+
+if __name__ == "__main__":
+    print("This is a library. Run travel_time.py")

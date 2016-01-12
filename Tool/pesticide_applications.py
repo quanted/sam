@@ -1,5 +1,5 @@
 import numpy as np
-from functions import passbyval
+from pesticide_functions import passbyval
 
 
 @passbyval
@@ -79,4 +79,4 @@ def process(pesticide_applications, plant_factor, rain, soil_distribution_2cm, c
 
 
 if __name__ == "__main__":
-    print("This is a library. Run MainPesticideCalculator.py")
+    print("This is a library. Run pesticide_calculator.py")

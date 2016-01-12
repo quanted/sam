@@ -1,2 +1,2 @@
-# sam
-spatial aquatic model
+#SAM
+Spatial Aquatic Model

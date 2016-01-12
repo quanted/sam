@@ -157,15 +157,6 @@ def input_file(input_file):
            app_windows, appnumrec, appmass, appmethod_init, degradation_aqueous
 
 
-def pesticide_parameters():
-    delta_x = 0.02  # meters
-    foliar_degradation = 0.0  # per day
-    washoff_coeff = 0.1
-    soil_distribution_2cm = 0.75  # REVISED for 1 COMPARTMENT - UNIFORM EXTRACTION
-    runoff_effic = 0.266
-    return delta_x, foliar_degradation, washoff_coeff, soil_distribution_2cm, runoff_effic
-
-
 def lake_file(lake_file):
     # @@@ - probably a better way than this
     # Lake header: [COMID, Volume, Outflow,	OutletCOMID, ResidenceTime]
@@ -200,6 +191,16 @@ def map_sam_output(sam_output_dir, sam_output_format, year_filter=2010):
                 output_files[reach_id] = os.path.join(sam_output_dir, f)
     return output_files
 
+
+def pesticide_parameters():
+    delta_x = 0.02  # meters
+    foliar_degradation = 0.0  # per day
+    washoff_coeff = 0.1
+    soil_distribution_2cm = 0.75  # REVISED for 1 COMPARTMENT - UNIFORM EXTRACTION
+    runoff_effic = 0.266
+    return delta_x, foliar_degradation, washoff_coeff, soil_distribution_2cm, runoff_effic
+
+
 @passbyval
 def sam_output(output_files):
 
@@ -228,7 +229,12 @@ def unpickle(fp):
         output = pickle.load(f)
         return output
 
+
 def upstream_params(upstream_file, map_file):
     upstream_cube = unpickle(upstream_file)  # [paths, times, lakes]
     path_map = unpickle(map_file)
     return np.rollaxis(upstream_cube, 2), path_map
+
+
+if __name__ == "__main__":
+    print("This is a library. Run pesticide_calculator.py or travel_time.py")
