@@ -7,38 +7,6 @@ from collections import defaultdict, OrderedDict
 import re
 import pickle
 
-from pesticide_functions import passbyval
-
-
-def recipes(recipe_dir, recipe_format, input_years, scenario_dir, crops_desired):
-    """
-    Reads all available recipe files from the recipe file directory and returns a dictionary containing scenario data
-    with the structure: {Recipe ID: {Year: [(Scenario Path, Area),],},}
-    """
-    recipe_dict = defaultdict(lambda: OrderedDict.fromkeys(sorted(input_years)))  # Initialize the recipe dictionary
-    for recipe_file in os.listdir(recipe_dir):  # Loop through all files in recipe directory
-        match = re.match(recipe_format, recipe_file)  # Check to see if the file is a recognized recipe
-        if match:
-            recipe_id, year = match.groups()  # If it is a recipe, extract recipe id and year from filename
-            year = int(year)
-            if year in input_years:  # Filter out years that are not in input years
-                recipe_file = os.path.join(recipe_dir, recipe_file)
-                missing_scenarios = []
-                scenarios = []
-                with open(recipe_file) as f:  # Open recipe file for reading
-                    f.readline()  # Read past header
-                    for row in f:  # Iterate through row by row
-                        scenario_id, area = row.split(",")  # Get scenario id and area from row
-                        crop = int(scenario_id.split("cdl")[1])  # Get crop number from scenario id
-                        if crop in crops_desired:  # Proceed if crop number is one of the specified crops
-                            scenario_file = os.path.join(scenario_dir, scenario_id)
-                            if os.path.isfile(scenario_file):  # Add scenario to recipe if the file exists
-                                scenarios.append((scenario_file, int(area)))
-                            else:  # If it doesn't exist, make a note of it
-                                missing_scenarios.append(scenario_file)
-                recipe_dict[recipe_id][year] = scenarios
-    return recipe_dict
-
 
 def flows(flow_file, dates, id_field="COMID"):
     # Read the NHD flow files to get q, v, xc
@@ -201,7 +169,36 @@ def pesticide_parameters():
     return delta_x, foliar_degradation, washoff_coeff, soil_distribution_2cm, runoff_effic
 
 
-@passbyval
+def recipes(recipe_dir, recipe_format, input_years, scenario_dir, crops_desired):
+    """
+    Reads all available recipe files from the recipe file directory and returns a dictionary containing scenario data
+    with the structure: {Recipe ID: {Year: [(Scenario Path, Area),],},}
+    """
+    recipe_dict = defaultdict(lambda: OrderedDict.fromkeys(sorted(input_years)))  # Initialize the recipe dictionary
+    for recipe_file in os.listdir(recipe_dir):  # Loop through all files in recipe directory
+        match = re.match(recipe_format, recipe_file)  # Check to see if the file is a recognized recipe
+        if match:
+            recipe_id, year = match.groups()  # If it is a recipe, extract recipe id and year from filename
+            year = int(year)
+            if year in input_years:  # Filter out years that are not in input years
+                recipe_file = os.path.join(recipe_dir, recipe_file)
+                missing_scenarios = []
+                scenarios = []
+                with open(recipe_file) as f:  # Open recipe file for reading
+                    f.readline()  # Read past header
+                    for row in f:  # Iterate through row by row
+                        scenario_id, area = row.split(",")  # Get scenario id and area from row
+                        crop = int(scenario_id.split("cdl")[1])  # Get crop number from scenario id
+                        if crop in crops_desired:  # Proceed if crop number is one of the specified crops
+                            scenario_file = os.path.join(scenario_dir, scenario_id)
+                            if os.path.isfile(scenario_file):  # Add scenario to recipe if the file exists
+                                scenarios.append((scenario_file, int(area)))
+                            else:  # If it doesn't exist, make a note of it
+                                missing_scenarios.append(scenario_file)
+                recipe_dict[recipe_id][year] = scenarios
+    return recipe_dict
+
+
 def sam_output(output_files):
 
     # Written for header [Date, Conc(ug/L), RMass(kg), Runoff(m), RConc(ug/L), TotalFlow(m3), baseflow(m3)]
@@ -220,8 +217,8 @@ def sam_output(output_files):
         sam_output[i] = data[:]
         sam_lookup[reach_id] = i
     sam_output = np.rollaxis(sam_output, 2)
-    start_date = dates[0]
-    return sam_output, sam_lookup, start_date
+    dates = [datetime.date(*map(int, date.split("-"))) for date in dates]
+    return sam_output, sam_lookup, dates
 
 
 def unpickle(fp):

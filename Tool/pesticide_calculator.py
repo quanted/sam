@@ -1,7 +1,6 @@
 import numpy as np
 
 import read
-import pesticide_applications as applications
 import pesticide_functions as functions
 import output
 
@@ -40,14 +39,11 @@ def main_calculator(input_file, recipe_dir, scenario_dir, hydro_dir, output_dir,
                 runoff, leaching, rain, plant_factor, soil_water, covmax, org_carbon, bulk_density = \
                     read.scenario(scenario_file, start_count)
 
-                # Get the dates and amounts of pesticide applications
-                pesticide_apps = \
-                    applications.details(plant_factor, stageflag, distribflag, appnumrec, appmass, appmethod_init,
-                                         app_windows, stagedays, cropstage)
-
-                # Get the mass of pesticide in the soil at each time step
+                # Compute pesticide applications
                 pesticide_mass_soil = \
-                    applications.process(pesticide_apps, plant_factor, rain, soil_2cm, covmax, foliar_deg, washoff)
+                    functions.pesticide_applications(plant_factor, stageflag, distribflag, appnumrec, appmass,
+                                                     appmethod_init, app_windows, stagedays, cropstage, rain, soil_2cm,
+                                                     covmax, foliar_deg, washoff)
 
                 # Determine the loading of pesticide into runoff
                 runoff_mass = functions.transport(koc, org_carbon, bulk_density, degradation_aqueous, soil_water, delta_x,
@@ -86,6 +82,4 @@ def main():
                     hydro_format, output_format, input_years)
 
 if __name__ == "__main__":
-    #main()
-    import cProfile
-    cProfile.run("main()")
+    main()
