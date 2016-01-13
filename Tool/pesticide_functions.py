@@ -1,16 +1,6 @@
-from copy import deepcopy
 import numpy as np
 
 
-def passbyval(func):
-    # Function wrapper that performs a deep copy on input arrays so that the input array is not modified
-    def new(*args):
-        cargs = [deepcopy(arg) for arg in args]
-        return func(*cargs)
-    return new
-
-
-@passbyval
 def transport(koc, org_carbon, bulk_density, degradation_aqueous, soil_water_m_all, delta_x, kflag, runoff,
               leaching, runoff_effic, pesticide_mass_soil):
 
@@ -44,7 +34,7 @@ def transport(koc, org_carbon, bulk_density, degradation_aqueous, soil_water_m_a
 def waterbody_concentration(q, xc, total_runoff, total_runoff_mass):
 
     # Develop hydrograph
-    baseflow = np.ones_like(total_runoff) * 1.e-6
+    baseflow = np.ones_like(total_runoff) * 1.e-6  # 1.e-6 is minimum baseflow
     average_runoff = np.average(total_runoff) # m3/d
     volume = (xc * 40.)
     baseflow[q >= average_runoff] = q[q >= average_runoff] - average_runoff
@@ -72,8 +62,9 @@ def waterbody_concentration(q, xc, total_runoff, total_runoff_mass):
     return total_flow, baseflow, avgconc_adj, runoff_conc
 
 
-def pesticide_applications(plant_factor, stageflag, distribflag, appnumrec, appmass, appmethod_init, app_windows,
-                           stagedays, cropstage, rain, soil_2cm, covmax, foliar_deg, washoff_coeff):
+def pesticide_applications(plant_factor, stageflag, distribflag, appnumrec_global, appmass_global,
+                           appmethod_init, app_windows, stagedays, cropstage, rain, soil_2cm, covmax, foliar_deg,
+                           washoff_coeff):
 
     def application_dates():
         cumulative_maturity = np.int16((plant_factor == 1).cumsum())
@@ -88,7 +79,6 @@ def pesticide_applications(plant_factor, stageflag, distribflag, appnumrec, appm
 
         return {1: plant_dates, 2: emerg_dates, 3: mature_dates, 4: harvest_dates}
 
-    @passbyval  # @@@ - replace passbyval, i think this is slow
     def details():
 
         twindow1, pct1, twindow2, pct2 = app_windows
@@ -102,14 +92,14 @@ def pesticide_applications(plant_factor, stageflag, distribflag, appnumrec, appm
             if (cropstage, distribflag) in [(1, 1), (2, 1), (3, 2), (3, 3), (4, 2), (4, 3)]: # @@@
                 appcount = 0
 
-            if distribflag == 1: # uniform application
+            if distribflag == 1:  # uniform application
                 appmass[appcount:appcount+twindow1] = appmass_init / twindow1
 
-            elif distribflag == 2: # step application
+            elif distribflag == 2:  # step application
                 appmass[appcount:appcount+twindow1] = (pct1 / 100 * appmass_init) / twindow1
                 appmass[appcount+twindow1:appcount+twindow1+twindow2] = (pct2 / 100 * appmass_init) / twindow2
 
-            elif distribflag == 3: # triangular application
+            elif distribflag == 3:  # triangular application
                 thalf = twindow1 / 2
                 leg = ((appmass_init / twindow1) / thalf) * ((np.arange(thalf) + 1) ** 2 - (np.arange(thalf) ** 2))
                 appmass[appcount:appcount+twindow1] = np.hstack((leg, leg[::-1]))
@@ -121,12 +111,11 @@ def pesticide_applications(plant_factor, stageflag, distribflag, appnumrec, appm
 
         applications = np.zeros((2, plant_factor.size))
         applications[0][appnumrec] = appmass
-        applications[1][appnumrec] = appmethod_init
+        applications[1][appnumrec] = appmethod_init  # @@@ - how does any other application method get used?
 
         return applications
 
 
-    @passbyval
     def process():
 
         def days_since(a):
@@ -149,6 +138,10 @@ def pesticide_applications(plant_factor, stageflag, distribflag, appnumrec, appm
             canopy_mass *= washoff[day]
 
         return pesticide_mass_soil
+
+    # Create local copies of application data arrays
+    appmass = np.copy(appmass_global)
+    appnumrec = np.copy(appnumrec_global)
 
     applications = details()
 

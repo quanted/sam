@@ -1,3 +1,4 @@
+import os
 import numpy as np
 
 import read
@@ -5,8 +6,7 @@ import pesticide_functions as functions
 import output
 
 
-def main_calculator(input_file, recipe_dir, scenario_dir, hydro_dir, output_dir, flow_file, recipe_format, hydro_format,
-                    output_format, input_years):
+def pesticide_calculator(input_file, scenario_dir, flow_file, recipe_path, hydro_path, output_path, input_years):
 
     # Read in hardwired parameters (set in read.py)
     delta_x, foliar_deg, washoff, soil_2cm, runoff_effic = read.pesticide_parameters()
@@ -16,14 +16,14 @@ def main_calculator(input_file, recipe_dir, scenario_dir, hydro_dir, output_dir,
     app_windows, appnumrec, appmass, appmethod_init, degradation_aqueous = read.input_file(input_file)
 
     # Find and assemble recipes
-    recipe_files = read.recipes(recipe_dir, recipe_format, input_years, scenario_dir, cropdesired)
+    recipe_files = read.recipes(recipe_path, input_years, scenario_dir, cropdesired)
 
     # Loop through recipes and corresponding flows listed in flow file
     for recipe_id, q, _, xc in read.flows(flow_file, dates):
 
         print(recipe_id)
 
-        total_runoff_by_year = read.hydro(hydro_dir, hydro_format, recipe_id, input_years, start_count)
+        total_runoff_by_year = read.hydro(hydro_path, recipe_id, input_years, start_count)
 
         for year in input_years:  # recipe_files[recipe_id]:
 
@@ -57,8 +57,7 @@ def main_calculator(input_file, recipe_dir, scenario_dir, hydro_dir, output_dir,
                 functions.waterbody_concentration(q, xc, total_runoff, total_runoff_mass)
 
             # Write daily output
-            output.daily(output_dir, output_format,
-                         recipe_id, total_conc, runoff_conc, total_runoff_mass, dates, q_tot, baseflow,
+            output.daily(output_path, recipe_id, total_conc, runoff_conc, total_runoff_mass, dates, q_tot, baseflow,
                          total_runoff, year)
 
 
@@ -67,8 +66,8 @@ def main():
     input_file = r"T:\SAM\FortranToPy\Inputs\SAM.inp"
     flow_file = r"T:\SAM\FortranToPy\MarkTwain\MO_flows.csv"
 
-    recipe_dir = r"T:\SAM\FortranToPy\MarkTwain\Recipes"
     scenario_dir = r"T:\SAM\FortranToPy\MarkTwain\Scenarios\Pickled"
+    recipe_dir = r"T:\SAM\FortranToPy\MarkTwain\Recipes"
     hydro_dir = r"T:\SAM\FortranToPy\MarkTwain\Hydro"
     output_dir = r"T:\SAM\Outputs\Python"
 
@@ -76,10 +75,13 @@ def main():
     hydro_format = "{}_hydro.txt"
     output_format = "Eco_{}_{}_daily.out"
 
+    recipe_path = os.path.join(recipe_dir, recipe_format)
+    hydro_path = os.path.join(hydro_dir, hydro_format)
+    output_path = os.path.join(output_dir, output_format)
+
     input_years = [2010, 2011, 2012, 2013]
 
-    main_calculator(input_file, recipe_dir, scenario_dir, hydro_dir, output_dir, flow_file, recipe_format,
-                    hydro_format, output_format, input_years)
+    pesticide_calculator(input_file, scenario_dir, flow_file, recipe_path, hydro_path, output_path, input_years)
 
 if __name__ == "__main__":
     main()

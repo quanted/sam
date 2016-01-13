@@ -9,15 +9,12 @@ import write
 # how to set up?  will SAM be run for whole regions?
 # still not clear on flattening hydrograph for lake outlets
 
+
 def time_of_travel(lake_file, upstream_file, sam_output_file, output_dir, output_format, diagnostics=False):
 
-    # Read in compressed SAM output
+    # Read in compressed SAM output, lake file, and upstream path data
     sam_output, sam_lookup, dates = read.unpickle(sam_output_file)
-
-    # Read lake file
     volume_dict, outflow_dict, outlet_dict, residence_times, waterbody_dict = read.unpickle(lake_file)
-
-    # Get upstream path data
     upstream, path_map = read.unpickle(upstream_file)
 
     # Separate flowing reaches from reaches that are in a reservoir
@@ -62,8 +59,8 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_dir, output
                     functions.compute_concentration(runoff_mass, total_runoff, baseflow)
 
                 # If the reach is an outlet for a lake, write the output to the reach and all reaches in the lake
-                for reach in {reach} | upstream_lentics[reach]:
-                    write.daily(output_dir, output_format, reach, total_conc, runoff_conc, runoff_mass, dates,
+                for output_reach in {reach} | upstream_lentics[reach]:
+                    write.daily(output_dir, output_format, output_reach, total_conc, runoff_conc, runoff_mass, dates,
                                  total_flow, baseflow, total_runoff)
 
             else:
@@ -75,8 +72,7 @@ def main():
     diagnostics = True
 
     region = '07'
-    #sam_output_id = "mark_twain"
-    sam_output_id = "mtb_test01"
+    sam_output_id = "mark_twain"
 
     lakefile_dir = r"T:\SAM\Preprocessed\LakeFiles"
     upstream_repository = r"T:\SAM\Preprocessed\UpstreamPaths"

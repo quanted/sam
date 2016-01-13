@@ -97,7 +97,7 @@ def preconvolution_report(reach, dates, output_dir, output_format, upstream_outp
     import write
 
     # Create output directory
-    output_dir.replace("Convolved", "Aggregated")
+    output_dir = output_dir.replace("Convolved", "Aggregated")
     if not os.path.isdir(output_dir):
         os.mkdir(output_dir)
 

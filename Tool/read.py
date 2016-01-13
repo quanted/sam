@@ -21,8 +21,8 @@ def flows(flow_file, dates, id_field="COMID"):
             yield recipe_id, q, v, xc
 
 
-def hydro(hydro_dir, hydro_format, comid, years, start_count):
-    hydro_file = os.path.join(hydro_dir, hydro_format.format(comid))
+def hydro(hydro_path, reach, years, start_count):
+    hydro_file = hydro_path.format(reach)
     if os.path.isfile(hydro_file):
         with open(hydro_file) as f:
             num_records = int(float(f.readline().split()[0]))
@@ -169,12 +169,13 @@ def pesticide_parameters():
     return delta_x, foliar_degradation, washoff_coeff, soil_distribution_2cm, runoff_effic
 
 
-def recipes(recipe_dir, recipe_format, input_years, scenario_dir, crops_desired):
+def recipes(recipe_path, input_years, scenario_dir, crops_desired):
     """
     Reads all available recipe files from the recipe file directory and returns a dictionary containing scenario data
     with the structure: {Recipe ID: {Year: [(Scenario Path, Area),],},}
     """
     recipe_dict = defaultdict(lambda: OrderedDict.fromkeys(sorted(input_years)))  # Initialize the recipe dictionary
+    recipe_dir, recipe_format = os.path.split(recipe_path)
     for recipe_file in os.listdir(recipe_dir):  # Loop through all files in recipe directory
         match = re.match(recipe_format, recipe_file)  # Check to see if the file is a recognized recipe
         if match:
