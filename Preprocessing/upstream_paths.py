@@ -5,6 +5,10 @@ from read_tools import *
 import pickle
 import os
 
+# At the moment, reaches with stream_calc = 0 are not processed or included as upstream. Probably should be...
+#   HERE'S MY IDEA ON THAT: Include all reaches, regardless of stream_calc.  BUT, only use stream_calc == 1 for
+#   intermediate reaches/times.  So, if paths 1234568 and 1234578 exist, but stream_calc[7] == 0,
+#   then don't use 7 for 8's time
 
 def snapshot(nodes, outlets, max_length=2500, max_paths=100000):
 

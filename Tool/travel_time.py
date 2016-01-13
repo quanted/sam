@@ -1,17 +1,17 @@
 import os
 import numpy as np
-import travel_time_functions as functions
 import datetime
 
+import travel_time_functions as functions
 import read
 import output
 
 # @@@ - to do:
 # class for indexed array?  class for input file with dir and format?  OR structured arrays?
 # how to set up?  will SAM be run for whole regions?
-# At the moment, reaches with stream_calc = 0 are not processed or included as upstream. Probably should be...
+# still not clear on flattening hydrograph for lake outlets
 
-def time_of_travel(lake_file, upstream_file, sam_output_file, output_dir, output_format):
+def time_of_travel(lake_file, upstream_file, sam_output_file, output_dir, output_format, diagnostics=False):
 
     # Read in compressed SAM output
     sam_output, sam_lookup, start_date = read.unpickle(sam_output_file)
@@ -23,7 +23,12 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_dir, output
     upstream, path_map = read.unpickle(upstream_file)
 
     # Separate flowing reaches from reaches that are in a reservoir
-    lotic_reaches, upstream_lentics = functions.classify_reaches(sam_lookup.keys(), outlet_dict, waterbody_dict)
+    lentic_reaches, lotic_reaches, upstream_lentics = \
+        functions.classify_reaches(sam_lookup.keys(), outlet_dict, waterbody_dict)
+
+    # Flatten the hydrograph of all lentic reaches
+    sam_output = \
+        functions.flatten_hydrograph(sam_output, sam_lookup, lentic_reaches, waterbody_dict, outlet_dict, outflow_dict)
 
     # Identify the dates that correspond to the time series
     time_period = sam_output.shape[2]
@@ -37,46 +42,50 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_dir, output
         if reach_address:
 
             # Pull upstream path data for this reach
-            upstream_paths, upstream_times, upstream_lakes, upstream_reaches = \
-                functions.trim_to_reach(upstream, *reach_address)
+            upstream_paths, upstream_lakes, upstream_times = functions.trim_to_reach(upstream, *reach_address)
 
+            # Get a set of all unique reaches upstream of the reach,
             all_upstream = set(np.unique(upstream_paths))
+            if all_upstream:  # Check that reach was found in the path matrix.
 
-            # Check to make sure that the reach was found in the path matrix.
-            if all_upstream:
+                # Get baseflow for the reach.  This is not convolved or accumulated upstream
+                baseflow = sam_output[2, sam_lookup[reach]]
 
                 # Get all applicable SAM output time series for this reach
-                upstream_output, upstream_baseflow, upstream_lookup = \
+                upstream_output, upstream_lookup = \
                     functions.trim_to_upstream(sam_output, sam_lookup, all_upstream)
+
+                if diagnostics:
+                    functions.preconvolution_report(reach, dates, output_dir, output_format, upstream_output, baseflow)
 
                 # Convolve paths that pass through reservoirs
                 upstream_output = functions.convolve_reservoirs(upstream_output, upstream_lookup, upstream_paths,
                                                                 upstream_lakes, residence_times, time_period)
 
                 # Snap the travel times to an interval (portions of a day).  Default is 1-day
-                upstream_output = functions.convolve_flowing(upstream_reaches, upstream_output, upstream_lookup,
-                                                             time_period)
+                runoff_mass, total_runoff = functions.convolve_flowing(upstream_paths, upstream_times,
+                                                                  upstream_output, upstream_lookup,
+                                                                  time_period)
 
                 # Unpack time series and compute concentration
                 runoff_mass, total_runoff, baseflow, total_flow, total_conc, runoff_conc = \
-                    functions.compute_concentration(upstream_output, upstream_baseflow)
-
-                if runoff_mass.sum():
-                    print(reach)
+                    functions.compute_concentration(runoff_mass, total_runoff, baseflow)
 
                 # If the reach is an outlet for a lake, write the output to the reach and all reaches in the lake
                 for reach in {reach} | upstream_lentics[reach]:
                     output.daily(output_dir, output_format, reach, total_conc, runoff_conc, runoff_mass, dates,
                                  total_flow, baseflow, total_runoff)
 
-
-
             else:
                 print("{} not found in path map".format(reach))
 
 def main():
+
+    diagnostics = True
+
     region = '07'
-    sam_output_id = "mark_twain"
+    #sam_output_id = "mark_twain"
+    sam_output_id = "mtb_test01"
 
     lakefile_dir = r"T:\SAM\Preprocessed\LakeFiles"
     upstream_repository = r"T:\SAM\Preprocessed\UpstreamPaths"
@@ -92,7 +101,8 @@ def main():
     upstream_file = os.path.join(upstream_repository, upstream_format)
     sam_output_file = os.path.join(sam_output_dir, sam_output_format)
 
-    time_of_travel(lake_file, upstream_file, sam_output_file, convolution_output_dir, convolution_output_format)
+    time_of_travel(lake_file, upstream_file, sam_output_file, convolution_output_dir, convolution_output_format,
+                   diagnostics)
 
 if __name__ == "__main__":
     main()
