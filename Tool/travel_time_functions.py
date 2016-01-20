@@ -3,8 +3,26 @@ import numpy as np
 from collections import defaultdict
 
 
-def classify_reaches(all_reaches, outlet_dict, waterbody_dict):
+def bin_reaches(upstream_paths, upstream_times, interval=1):
 
+    # Divide lotic reaches into tanks based on travel times
+    reach_times = np.array(list(filter(lambda x: x[0] > 0, set(zip(upstream_paths.flat, upstream_times.flat))))).T
+    reach_times[1] = np.round(reach_times[1] / interval) * interval  # Round times to the nearest interval
+    intervals = sorted(np.unique(reach_times[1]))  # Every interval containing reaches
+    tanks = ((tank, list(reach_times[0, reach_times[1] == tank])) for tank in intervals)  # ((ivl, reach),...)
+
+    return tanks
+
+def classify_reaches(all_reaches, outlet_dict, waterbody_dict):
+    """
+    Classifies reaches as lentic (in a waterbody) or lotic (flowing) and provides a lookup dictionary containing all
+    of the lentic reaches upstream of every reach
+    :param all_reaches: Set containing the reach IDs of all reaches
+    :param outlet_dict: Dictionary containing the outlet reach ID for every water body
+    :param waterbody_dict: Dictionary containing the reaches contained within each waterbody
+    :return: Set of lentic reach IDs, set of lotic reach IDs, dictionary with reach IDs as keys and a set of all
+             upstream lentic reaches as values
+    """
     all_reaches = set(all_reaches)
 
     # Get a dictionary of all lentic reaches
@@ -13,6 +31,7 @@ def classify_reaches(all_reaches, outlet_dict, waterbody_dict):
         for reach in waterbody_dict.get(lake) - {outlet}:
             lentic_reach_dict[reach] = outlet
 
+    # Identify lentic and lotic reaches
     lentic_reaches = set(lentic_reach_dict.keys())
     lotic_reaches = all_reaches - lentic_reaches
 
@@ -25,51 +44,79 @@ def classify_reaches(all_reaches, outlet_dict, waterbody_dict):
 
 
 def compute_concentration(mass_time_series, runoff_time_series, baseflow):
+    """
+    Divides mass by flow to compute runoff concentrations
+    :param mass_time_series: 1d array containing a time series of pesticide mass
+    :param runoff_time_series: 1d array containing a time series of runoff volume
+    :param baseflow: 1d array containing a time series of baseflow
+    :return: Total flow (sum of baseflow and runoff), pesticide concentration, and pesticide concentration in runoff
+    """
 
     total_flow = runoff_time_series + baseflow
     concentration = np.nan_to_num(mass_time_series / total_flow)
     runoff_conc = np.nan_to_num(mass_time_series / runoff_time_series)
 
-    return mass_time_series, runoff_time_series, baseflow, total_flow, concentration, runoff_conc
+    return total_flow, concentration, runoff_conc
 
 
-def convolve_flowing(upstream_paths, upstream_times, upstream_output, upstream_lookup, interval=1):
+def convolve_flowing(upstream_paths, upstream_times, upstream_output, upstream_lookup, interval=1, convolve=True):
+    """
+    Apply convolution to flowing reaches
+    :param upstream_paths: 2d array containing all of the flow paths upstream of the active reach
+    :param upstream_times: 2d array containing the reach times that correspond to upstream_paths
+    :param upstream_output: 2d array containing time series of SAM-generated pesticide loads for each reach
+    :param upstream_lookup: A dictionary which provides the row number for each reach in upstream_output
+    :param interval:
+    :return: A 2d array containing a time series of convolved mass and convolved runoff for each reach
+    """
 
-    # Divide lotic reaches into tanks based on travel times
-    reach_times = np.array(list(filter(lambda x: x[0] > 0, set(zip(upstream_paths.flat, upstream_times.flat))))).T
-    reach_times[1] = np.round(reach_times[1] / interval) * interval  # Round times to the nearest interval
-    intervals = sorted(np.unique(reach_times[1]))  # Every interval containing reaches
-    tanks = ((tank, list(reach_times[0, reach_times[1] == tank])) for tank in intervals)  # ((ivl, reach),...)
-
-     # Loop through each tank and perform convolution
+    # Loop through each tank and perform convolution
     n_dates = upstream_output.shape[2]
     output_time_series = np.zeros((2, n_dates))
-    for interval, tank in tanks:
+    tanks = bin_reaches(upstream_paths, upstream_times, interval) # Divide lotic reaches into tanks based on times
+
+    for interval, tank in tanks:  #  Interval: upstream travel time, tank: set of reaches
         tank_indices = list(filter(lambda x: isinstance(x, int), map(upstream_lookup.get, tank)))
         if tank_indices:  # Only proceed if tank reaches were found in the local output (they might all be missing)
-            tank_output = upstream_output[:, tank_indices].sum(axis=1)
-            if interval > 0:  # Only perform convolution if timestep is not 0
-                irf = impulse_response_function(interval, 1, n_dates)
-                tank_output[0] = np.convolve(tank_output[0], irf)[:n_dates]
-                tank_output[1] = np.convolve(tank_output[1], irf)[:n_dates]
+            tank_output = upstream_output[:, tank_indices].sum(axis=1)  # Sum up all time series in the tank
+            if interval > 0:
+                if convolve:  # Only perform convolution if timestep is not 0
+                    irf = impulse_response_function(interval + 1, 1, n_dates)  # Get the convolution function
+                    tank_output[0] = np.convolve(tank_output[0], irf)[:n_dates]  # Convolve mass
+                    tank_output[1] = np.convolve(tank_output[1], irf)[:n_dates]  # Convolve runoff
+                else:  # If convolution is off, just offset the time series for the tank.
+                    offset = np.array([0.0] * interval)
+                    tank_output[0] = np.hstack((offset, tank_output[0]))[:n_dates]
+                    tank_output[1] = np.hstack((offset, tank_output[1]))[:n_dates]
+
             output_time_series += tank_output  # Add the convolved tank time series to the total for the reach
 
     return output_time_series
 
 
-def convolve_reservoirs(local_output, local_lookup, local_paths, local_lakes, residence_times, n_dates):
+def convolve_reservoirs(local_output, local_lookup, reach_to_waterbody, local_paths, residence_times):
+    """
+    Convolves the mass and runoff time series for reaches upstream of reservoirs
+    :param local_output:
+    :param local_lookup:
+    :param local_paths:
+    :param local_lakes:
+    :param residence_times:
+    :return:
+    """
 
     n_dates = local_output.shape[2]
 
-    # Compile all of the reaches upstream of each lake upstream of the active reach
+    # Get every lake upstream of the active reach, and all the reaches upstream of each of those lakes
     upstream_reaches = defaultdict(set)
-    all_lakes = np.trim_zeros(np.unique(local_lakes), 'f')  # An array with all the LAKE ids in local_lakes
-    for lake in all_lakes:
-        path_indices = np.nonzero(np.any(local_lakes == lake, axis=1))[0]  # Row nums of all paths containing the lake
+    upstream_lentics = set(local_lookup.keys()) & set(reach_to_waterbody.keys())  # All lentic reaches upstream of active reach
+    for upstream_lentic in upstream_lentics:
+        lake = reach_to_waterbody[upstream_lentic]  # The lake corresponding to the lentic reach
+        path_indices = np.nonzero(np.any(local_paths == upstream_lentic, axis=1))[0]  # Row nums of all paths containing the reach
         for path_index in path_indices:
-            reaches = local_paths[path_index]
-            lake_index = list(local_lakes[path_index]).index(lake)  # The location of the lake in the row (start point)
-            upstream_reaches[lake] |= set(reaches[lake_index:])
+            full_path = local_paths[path_index]
+            upstream_of_reach = full_path[np.argmax(full_path == upstream_lentic):]
+            upstream_reaches[lake] |= set(upstream_of_reach)
 
     # Convolve each reach upstream of a lake against that lakes's residence time
     for lake, reaches in upstream_reaches.items():
@@ -91,23 +138,15 @@ def impulse_response_function(alpha, beta, length):
     return np.array([gamma_distribution(i, alpha, beta) for i in range(length)])
 
 
-def preconvolution_report(reach, dates, output_dir, output_format, upstream_output, baseflow):
+def preconvolution_report(reach, dates, output_file, upstream_output, baseflow):
 
-    import os
     import write
 
     # Create output directory
-    output_dir = output_dir.replace("Convolved", "Aggregated")
-    if not os.path.isdir(output_dir):
-        os.mkdir(output_dir)
-
+    output_file = output_file.replace("Convolved", "Aggregated")
     runoff_mass, total_runoff = upstream_output.sum(axis=1)
-
-    runoff_mass, total_runoff, baseflow, total_flow, total_conc, runoff_conc = \
-        compute_concentration(runoff_mass, total_runoff, baseflow)
-
-    write.daily(output_dir, output_format, str(reach) + "_ag", total_conc, runoff_conc, runoff_mass, dates,
-                 total_flow, baseflow, total_runoff)
+    total_flow, total_conc, runoff_conc = compute_concentration(runoff_mass, total_runoff, baseflow)
+    write.daily(output_file.format("aggr", reach), total_conc, runoff_conc, runoff_mass, dates, total_flow, baseflow, total_runoff)
 
 
 def trim_to_reach(upstream, start_row, col, start_time, end_row):

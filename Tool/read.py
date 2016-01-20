@@ -16,7 +16,7 @@ def flows(flow_file, dates, id_field="COMID"):
         for row in reader:
             recipe_id = row[id_field]
             q, v, xc = \
-                (np.array([float(row[var + "_" + str(m).zfill(2)]) for m in range(1, 13) + ['MA']])[months]
+                (np.array([float(row[var + "_" + str(m).zfill(2)]) for m in list(range(1, 13)) + ['MA']])[months]
                  for var in ("Q", "V", "XC"))
             yield recipe_id, q, v, xc
 
@@ -147,19 +147,6 @@ def lake_file(lake_file):
     return volume_dict, outflow_dict, outlet_dict, residence_times, waterbody_dict
 
 
-def map_sam_output(sam_output_dir, sam_output_format, year_filter=2010):
-
-    # Map output files to dictionary
-    output_files = {}
-    for f in os.listdir(sam_output_dir):
-        match = re.match(sam_output_format, f)
-        if match:
-            reach_id, year = map(int, match.groups())
-            if year == year_filter:
-                output_files[reach_id] = os.path.join(sam_output_dir, f)
-    return output_files
-
-
 def pesticide_parameters():
     delta_x = 0.02  # meters
     foliar_degradation = 0.0  # per day
@@ -169,13 +156,13 @@ def pesticide_parameters():
     return delta_x, foliar_degradation, washoff_coeff, soil_distribution_2cm, runoff_effic
 
 
-def recipes(recipe_path, input_years, scenario_dir, crops_desired):
+def recipes(recipe_dir, recipe_format, input_years, scenario_dir, crops_desired):
     """
     Reads all available recipe files from the recipe file directory and returns a dictionary containing scenario data
     with the structure: {Recipe ID: {Year: [(Scenario Path, Area),],},}
     """
     recipe_dict = defaultdict(lambda: OrderedDict.fromkeys(sorted(input_years)))  # Initialize the recipe dictionary
-    recipe_dir, recipe_format = os.path.split(recipe_path)
+
     for recipe_file in os.listdir(recipe_dir):  # Loop through all files in recipe directory
         match = re.match(recipe_format, recipe_file)  # Check to see if the file is a recognized recipe
         if match:
@@ -198,28 +185,6 @@ def recipes(recipe_path, input_years, scenario_dir, crops_desired):
                                 missing_scenarios.append(scenario_file)
                 recipe_dict[recipe_id][year] = scenarios
     return recipe_dict
-
-
-def sam_output(output_files):
-
-    # Written for header [Date, Conc(ug/L), RMass(kg), Runoff(m), RConc(ug/L), TotalFlow(m3), baseflow(m3)]
-    # Looking for RMass (col 2), Runoff (col 3), baseflow (col 6)
-    # sam_output is a 3d array with dimensions [attributes, reaches, dates]
-    sam_lookup = {}
-    initial = True
-    for i, reach in enumerate(output_files.items()):
-        reach_id, reach_file = reach
-        data = np.genfromtxt(reach_file, delimiter=' ', skip_header=1, usecols=(2,3,6))  # (5479, 3) [ndates, attributes]
-        dates = np.genfromtxt(reach_file, dtype=np.str, delimiter=' ', skip_header=1, usecols=(0))  # (5479, 3) [ndates, attributes]
-        if initial:
-            size = (len(output_files), data.shape[0], data.shape[1])  # (920, 5479, 3)
-            sam_output = np.ndarray(size)
-            initial = False
-        sam_output[i] = data[:]
-        sam_lookup[reach_id] = i
-    sam_output = np.rollaxis(sam_output, 2)
-    dates = [datetime.date(*map(int, date.split("-"))) for date in dates]
-    return sam_output, sam_lookup, dates
 
 
 def unpickle(fp):

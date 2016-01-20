@@ -3,10 +3,10 @@ import numpy as np
 
 import read
 import pesticide_functions as functions
-import output
+import write
 
 
-def pesticide_calculator(input_file, scenario_dir, flow_file, recipe_path, hydro_path, output_path, input_years):
+def pesticide_calculator(input_file, scenario_dir, flow_file, recipe_dir, recipe_format, hydro_path, output_path, input_years):
 
     # Read in hardwired parameters (set in read.py)
     delta_x, foliar_deg, washoff, soil_2cm, runoff_effic = read.pesticide_parameters()
@@ -16,7 +16,7 @@ def pesticide_calculator(input_file, scenario_dir, flow_file, recipe_path, hydro
     app_windows, appnumrec, appmass, appmethod_init, degradation_aqueous = read.input_file(input_file)
 
     # Find and assemble recipes
-    recipe_files = read.recipes(recipe_path, input_years, scenario_dir, cropdesired)
+    recipe_files = read.recipes(recipe_dir, recipe_format, input_years, scenario_dir, cropdesired)
 
     # Loop through recipes and corresponding flows listed in flow file
     for recipe_id, q, _, xc in read.flows(flow_file, dates):
@@ -57,8 +57,9 @@ def pesticide_calculator(input_file, scenario_dir, flow_file, recipe_path, hydro
                 functions.waterbody_concentration(q, xc, total_runoff, total_runoff_mass)
 
             # Write daily output
-            output.daily(output_path, recipe_id, total_conc, runoff_conc, total_runoff_mass, dates, q_tot, baseflow,
-                         total_runoff, year)
+
+            write.daily(output_path.format(recipe_id, year), total_conc, runoff_conc, total_runoff_mass, dates, q_tot,
+                        baseflow, total_runoff, year)
 
 
 def main():
@@ -75,13 +76,12 @@ def main():
     hydro_format = "{}_hydro.txt"
     output_format = "Eco_{}_{}_daily.out"
 
-    recipe_path = os.path.join(recipe_dir, recipe_format)
     hydro_path = os.path.join(hydro_dir, hydro_format)
     output_path = os.path.join(output_dir, output_format)
 
     input_years = [2010, 2011, 2012, 2013]
 
-    pesticide_calculator(input_file, scenario_dir, flow_file, recipe_path, hydro_path, output_path, input_years)
+    pesticide_calculator(input_file, scenario_dir, flow_file, recipe_dir, recipe_format, hydro_path, output_path, input_years)
 
 if __name__ == "__main__":
     main()
