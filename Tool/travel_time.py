@@ -38,6 +38,10 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_file,
 
         if reach_address:
 
+            diagnose = False
+            if reach == 5641550:
+                diagnose = True
+
             # Pull upstream path data for this reach
             upstream_paths, upstream_lakes, upstream_times = functions.trim_to_reach(upstream, *reach_address)
 
@@ -60,7 +64,8 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_file,
 
                 # Snap the travel times to an interval (portions of a day).  Default is 1-day
                 runoff_mass, total_runoff = \
-                    functions.convolve_flowing(upstream_paths, upstream_times, local_output, local_lookup, convolve)
+                    functions.convolve_flowing(upstream_paths, upstream_times, local_output, local_lookup,
+                                               convolve=convolve, diagnose=diagnose)
 
                 # Unpack time series and compute concentration
                 total_flow, total_conc, runoff_conc = \
@@ -68,7 +73,8 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_file,
 
                 # If the reach is an outlet for a lake, write the output to the reach and all reaches in the lake
                 for output_reach in {reach} | upstream_lentics[reach]:
-                    write.daily(output_file.format("conv", output_reach), total_conc, runoff_conc, runoff_mass, dates, total_flow, baseflow, total_runoff)
+                    prefix = "conv" if convolve else "unconv"
+                    write.daily(output_file.format("unconv", output_reach), total_conc, runoff_conc, runoff_mass, dates, total_flow, baseflow, total_runoff)
 
             else:
                 print("{} not found in path map".format(reach))

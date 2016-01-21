@@ -59,7 +59,7 @@ def compute_concentration(mass_time_series, runoff_time_series, baseflow):
     return total_flow, concentration, runoff_conc
 
 
-def convolve_flowing(upstream_paths, upstream_times, upstream_output, upstream_lookup, interval=1, convolve=True):
+def convolve_flowing(upstream_paths, upstream_times, upstream_output, upstream_lookup, interval=1, convolve=True, diagnose=False):
     """
     Apply convolution to flowing reaches
     :param upstream_paths: 2d array containing all of the flow paths upstream of the active reach
@@ -76,6 +76,8 @@ def convolve_flowing(upstream_paths, upstream_times, upstream_output, upstream_l
     tanks = bin_reaches(upstream_paths, upstream_times, interval) # Divide lotic reaches into tanks based on times
 
     for interval, tank in tanks:  #  Interval: upstream travel time, tank: set of reaches
+        if diagnose:
+            print(0, interval, list(tank))
         tank_indices = list(filter(lambda x: isinstance(x, int), map(upstream_lookup.get, tank)))
         if tank_indices:  # Only proceed if tank reaches were found in the local output (they might all be missing)
             tank_output = upstream_output[:, tank_indices].sum(axis=1)  # Sum up all time series in the tank
