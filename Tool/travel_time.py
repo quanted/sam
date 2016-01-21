@@ -21,7 +21,8 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_file,
 
     # Read in compressed SAM output, lake file, and upstream path data
     sam_output, sam_lookup, dates = read.unpickle(sam_output_file)
-    volume_dict, outflow_dict, outlet_dict, residence_times, waterbody_to_reach, reach_to_waterbody = read.unpickle(lake_file)
+    volume_dict, outflow_dict, outlet_dict, residence_times, waterbody_to_reach, reach_to_waterbody = \
+        read.unpickle(lake_file)
     upstream, path_map = read.unpickle(upstream_file)
 
     # Separate flowing reaches from reaches that are in a reservoir
@@ -31,11 +32,12 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_file,
     # Loop through all reaches with SAM output and run convolution
     for i, reach in enumerate(lotic_reaches):
 
+        # Print progress
         if not ((i + 1) % 50):
             print("{}/{}".format(i + 1, len(lotic_reaches)))
 
+        # Look up the location of the paths containing the active reach in the upstream paths array
         reach_address = path_map.get(reach)
-
         if reach_address:
 
             # Pull upstream path data for this reach
