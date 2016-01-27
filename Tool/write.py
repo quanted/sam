@@ -8,10 +8,9 @@ def daily(output_file, total_conc, runoff_conc, runoff_mass, dates, total_flow, 
     if not os.path.isdir(output_dir):
         os.mkdir(output_dir)
 
-
     # Create output
     header = "Date,Conc(ug/L),RMass(kg),Runoff(m),RConc(ug/L),TotalFlow(m3),baseflow(m3)"
-    fmt = ["%s","%f","%f","%f","%f","%f","%f"]
+    fmt = ["%s"] + ["%1.4e"] * 6
     out_values = np.array([dates, total_conc, runoff_mass, total_runoff, runoff_conc, total_flow, baseflow]).T
 
     np.savetxt(output_file, out_values, delimiter=",", fmt=fmt, header=header, newline="\n", comments="")

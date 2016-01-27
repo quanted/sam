@@ -82,11 +82,11 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_file,
 
 def main():
 
-    convolve = False
-    aggregate = False
+    convolve = True
+    aggregate = True
 
     region = '07'
-    sam_output_id = "mark_twain"
+    sam_output_id = "dummy_mtb"
 
     lakefile_dir = r"T:\SAM\Preprocessed\LakeFiles"
     upstream_repository = r"T:\SAM\Preprocessed\UpstreamPaths"
