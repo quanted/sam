@@ -30,14 +30,14 @@ def pesticide_calculator(input_file, scenario_dir, flow_file, recipe_path, hydro
 
             scenarios = recipe_files[recipe_id][year]
 
-# MMF  Sub in [year]? Already read in all 4 columns in hydro file (in read.hydro)
-# Should we try to construct new runoff array based on using 2010-2013 hydro backwards in time? 
-# so 2013 in 2013,...2010 in 2010,...2013 in 2009, 2012 in 2008, etc 
+# MMF  Sub in [year] for total_runoff_by_year? Already read in all 4 columns in hydro file (in read.hydro)
+#      should we also try to construct new runoff array, built from using 2010-2013 hydro sequentially, backwards in time? 
+#      so 2013 hydro for 2013 simulation,...2010 hydro for 2010, etc 
             total_runoff = total_runoff_by_year[2010]  # @@@ - total_runoff_by_year[year] (not using 2011-2013)
 
             total_runoff_mass = np.zeros_like(total_runoff)  # Initializes an array to hold daily total runoff mass
 
-# MMF reading pickle scenario here?
+# MMF Reading pickle here?
             for scenario_file, area in scenarios:
 
                 # Read scenario
@@ -57,22 +57,19 @@ def pesticide_calculator(input_file, scenario_dir, flow_file, recipe_path, hydro
                 # Update total runoff
                 total_runoff_mass += runoff_mass * area
 
-# MMF - INSERT TIME OF TRAVEL calc - find total runoff mass for larger drainages...
-# then perform water body calcs on both outputs of NHDbasin water bodies
-# and also 'cumulated larger drainage water bodies
+# MMF - INSERT call to TIME OF TRAVEL calc here - to find total runoff mass for larger drainages...
+#       (Such as below, but should we change Diagnostics to "True"?)
+                time_of_travel(lake_file, upstream_file, sam_output_file, output_dir, output_format, diagnostics=True)
 
-# MMF - change Diagnostics to True?
-###     time_of_travel(lake_file, upstream_file, sam_output_file, output_dir, output_format, diagnostics=False)
+# MMF - Then we probably want to perform Water Body Calcs on both sets of runoff masses: (1) NHDbasin outlets, and (2) larger drainages...
 
-
-# MMF - add solute holding capacity, mass transfer functions
-            capacity1, capacity2, fw1, fw2, theta, sed_conv_factor = \
-                functions.soluteholdingcap()
-
+# MMF - Addition of solute holding capacity and mass transfer functions needed for Water Body Calcs
+            capacity1, capacity2, fw1, fw2, theta, sed_conv_factor, omega = \
+                functions.soluteholdingcap(koc)
 
             # Compute concentration in water
             q_tot, baseflow, total_conc, runoff_conc = \
-                functions.waterbody_concentration(q, xc, total_runoff, total_runoff_mass)
+                functions.waterbody_concentration(q, xc, total_runoff, total_runoff_mass, degradation_aqueous, omega, theta)
 
             # Write daily output
             output.daily(output_path, recipe_id, total_conc, runoff_conc, total_runoff_mass, dates, q_tot, baseflow,
