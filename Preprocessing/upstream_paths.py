@@ -2,6 +2,7 @@ import numpy as np
 import time
 from collections import defaultdict
 from read_tools import *
+from Tool.travel_time_functions import report_progress
 import pickle
 import os
 
@@ -10,13 +11,13 @@ import os
 #   intermediate reaches/times.  So, if paths 1234568 and 1234578 exist, but stream_calc[7] == 0,
 #   then don't use 7 for 8's time
 
-def snapshot(nodes, outlets, max_length=2500, max_paths=100000):
-
+def snapshot(nodes, outlets, max_length=2500, max_paths=500000):
+    diagnoses = []
+    diagnostic_i = 0
     all_paths = np.zeros((max_paths, max_length), dtype=np.int32)
     path_cursor = 0
     for i, start_node in enumerate(outlets):
-        if not (i + 1) % 100:
-            print("{}/{}".format(i + 1, len(outlets)))
+        report_progress(i, len(outlets), 100)
         queue = np.zeros((nodes.shape[0], 2))
         active_node = start_node
         active_reach = np.zeros(max_length, dtype=np.int32)
@@ -32,15 +33,23 @@ def snapshot(nodes, outlets, max_length=2500, max_paths=100000):
                     queue[queue_cursor] = upstream[i]
                     queue_cursor += 1
             else:
+                #all_paths[path_cursor] = active_reach
+                if 5025559 in active_reach:
+                    diagnosis = list(filter(lambda x: x != 0, active_reach))
+                    if not diagnosis in diagnoses:
+                        diagnoses.append(diagnosis)
+                        diagnostic_i += 1
+                        print(diagnostic_i)
                 # Accumulate up reach
                 queue_cursor -= 1
+                path_cursor += 1
                 last_node, active_node = queue[queue_cursor]
                 if not any((last_node, active_node)):
                     break
                 active_reach_cursor = np.where(active_reach == last_node)[0][0] + 1
-                all_paths[path_cursor] = active_reach
+
                 active_reach[active_reach_cursor:] = 0.
-                path_cursor += 1
+
 
     return all_paths[~np.all(all_paths == 0, axis=1)]
 
@@ -59,12 +68,10 @@ def get_outlets(flow_table, flow_lines, vaa_table):
 
     return (terminal_paths | basin_outlets) - {0}
 
-def get_nodes(flow_table, vaa_table):
+def get_nodes(flow_table):
     nodes = read_dbf(flow_table, ["TOCOMID", "FROMCOMID"])  # Get all nodes
     nodes = filter(all, nodes)  # Filter out nodes where from or to value is zero
-    stream_calc = dict(read_dbf(vaa_table, ["ComID", "StreamCalc"]))
-    viable_nodes = filter(lambda x: all(map(stream_calc.get, x)), nodes)  # Filter out stream calc zeroes
-    return np.array(sorted(list(viable_nodes)), dtype=np.int32)  # Return a sorted array of nodes
+    return np.array(sorted(list(nodes)), dtype=np.int32)  # Return a sorted array of nodes
 
 def get_times(paths, q_table, vaa_table):
 
@@ -96,21 +103,12 @@ def get_lakes(paths, flow_lines):
     return lake_map
 
 
-def map_paths(paths, times):
-    # @@@ - can probably improve this with argmax etc
-    path_dict = defaultdict(list)
-    active = set()
+def map_paths(paths):
+    path_dict = defaultdict(lambda: defaultdict(list))
     for i, path in enumerate(paths):
-        newbies = set(path) - active
-        for newbie in newbies:
-            start_row = i
-            column = list(path).index(newbie)
-            start_time = times[start_row, column]
-            path_dict[newbie] = [start_row, column, start_time, -1]
-        oldies = active - set(path)
-        for oldie in oldies:
-            path_dict[oldie][3] = i
-        active = set(path)
+        for j, val in enumerate(path):
+            if val:
+                path_dict[val][j].append(i)
     return path_dict
 
 def write_to_outfiles(output_dir, region, paths, times, lakes, path_map):
@@ -135,7 +133,7 @@ def main(nhd_dir, output_directory, region_filter='all'):
             assert all(map(os.path.isfile, (flow_table, flow_lines, vaa_table, q_table)))
 
             # Do the work
-            nodes = get_nodes(flow_table, vaa_table)
+            nodes = get_nodes(flow_table)
             outlets = get_outlets(flow_table, flow_lines, vaa_table)
             paths = snapshot(nodes, outlets)
             times = get_times(paths, q_table, flow_lines)
