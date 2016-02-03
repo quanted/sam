@@ -52,9 +52,13 @@ def pesticide_calculator(input_file, scenario_dir, flow_file, recipe_dir, recipe
                 # Update total runoff
                 total_runoff_mass += runoff_mass * area
 
+            # MMF - Addition of solute holding capacity and mass transfer functions needed for Water Body Calcs
+            capacity1, capacity2, fw1, fw2, theta, sed_conv_factor, omega = functions.soluteholdingcap(koc)
+
             # Compute concentration in water
             q_tot, baseflow, total_conc, runoff_conc = \
-                functions.waterbody_concentration(q, xc, total_runoff, total_runoff_mass)
+                functions.waterbody_concentration(q, xc, total_runoff, total_runoff_mass, degradation_aqueous,
+                                                  omega, theta)
 
             # Write daily output
 
@@ -64,13 +68,13 @@ def pesticide_calculator(input_file, scenario_dir, flow_file, recipe_dir, recipe
 
 def main():
 
-    input_file = r"T:\SAM\FortranToPy\Inputs\SAM.inp"
-    flow_file = r"T:\SAM\FortranToPy\MarkTwain\MO_flows.csv"
+    input_file = r"..\FortranToPy\Inputs\SAM.inp"
+    flow_file = r"..\SAM\FortranToPy\MarkTwain\MO_flows.csv"
 
-    scenario_dir = r"T:\SAM\FortranToPy\MarkTwain\Scenarios\Pickled"
-    recipe_dir = r"T:\SAM\FortranToPy\MarkTwain\Recipes"
-    hydro_dir = r"T:\SAM\FortranToPy\MarkTwain\Hydro"
-    output_dir = r"T:\SAM\Outputs\Python"
+    scenario_dir = r"..\SAM\FortranToPy\MarkTwain\Scenarios\Pickled"
+    recipe_dir = r"..\SAM\FortranToPy\MarkTwain\Recipes"
+    hydro_dir = r"..\SAM\FortranToPy\MarkTwain\Hydro"
+    output_dir = r"..\SAM\Outputs\Python"
 
     recipe_format = "nhd_recipe_(\d+?)_(\d{4}).txt"
     hydro_format = "{}_hydro.txt"
