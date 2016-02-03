@@ -37,24 +37,6 @@ def hydro(hydro_path, reach, years, start_count):
         sys.exit("Hydro file {} not found".format(hydro_file))
 
 
-def scenario(path, start_count):
-    with open(path, 'rb') as f:
-        covmax, num_records, numberOfYears, count_runoff, date_runoff, raw_runoff, soil_water_m_all, \
-        count_velocity, date_velocity, raw_leaching, org_carbon, bulk_density, rain, plant_factor = pickle.load(f)
-
-    runoff = np.zeros_like(rain)
-    runoff[np.int32(date_runoff) - 2] = raw_runoff
-    leaching = np.zeros_like(rain)
-    leaching[np.int32(date_velocity) - 2] = raw_leaching
-
-    # Trim to start_count
-    soil_water_m_all = np.hstack((soil_water_m_all[start_count + 1:], [0.0]))  # @@@ - why?
-    plant_factor, rain, runoff, leaching = \
-        (arr[start_count:] for arr in (plant_factor, rain, runoff, leaching))
-
-    return runoff, leaching, rain, plant_factor, soil_water_m_all, covmax, org_carbon, bulk_density
-
-
 def input_file(input_file):
     def fetch(reader):
         line = reader.readline()
@@ -185,6 +167,24 @@ def recipes(recipe_dir, recipe_format, input_years, scenario_dir, crops_desired)
                                 missing_scenarios.append(scenario_file)
                 recipe_dict[recipe_id][year] = scenarios
     return recipe_dict
+
+
+def scenario(path, start_count):
+    with open(path, 'rb') as f:
+        covmax, num_records, numberOfYears, count_runoff, date_runoff, raw_runoff, soil_water_m_all, \
+        count_velocity, date_velocity, raw_leaching, org_carbon, bulk_density, rain, plant_factor = pickle.load(f)
+
+    runoff = np.zeros_like(rain)
+    runoff[np.int32(date_runoff) - 2] = raw_runoff
+    leaching = np.zeros_like(rain)
+    leaching[np.int32(date_velocity) - 2] = raw_leaching
+
+    # Trim to start_count
+    soil_water_m_all = np.hstack((soil_water_m_all[start_count + 1:], [0.0]))  # @@@ - why?
+    plant_factor, rain, runoff, leaching = \
+        (arr[start_count:] for arr in (plant_factor, rain, runoff, leaching))
+
+    return runoff, leaching, rain, plant_factor, soil_water_m_all, covmax, org_carbon, bulk_density
 
 
 def unpickle(fp):

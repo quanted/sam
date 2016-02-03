@@ -53,7 +53,7 @@ def pesticide_calculator(input_file, scenario_dir, flow_file, recipe_dir, recipe
                 total_runoff_mass += runoff_mass * area
 
             # MMF - Addition of solute holding capacity and mass transfer functions needed for Water Body Calcs
-            capacity1, capacity2, fw1, fw2, theta, sed_conv_factor, omega = functions.soluteholdingcap(koc)
+            capacity1, capacity2, fw1, fw2, theta, sed_conv_factor, omega = functions.solute_holding_capacity(koc)
 
             # Compute concentration in water
             q_tot, baseflow, total_conc, runoff_conc = \
@@ -61,7 +61,6 @@ def pesticide_calculator(input_file, scenario_dir, flow_file, recipe_dir, recipe
                                                   omega, theta)
 
             # Write daily output
-
             write.daily(output_path.format(recipe_id, year), total_conc, runoff_conc, total_runoff_mass, dates, q_tot,
                         baseflow, total_runoff, year)
 
