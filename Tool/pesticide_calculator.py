@@ -1,10 +1,8 @@
 ﻿import os
 import numpy as np
-
 import read
 import pesticide_functions as functions
 import write     
-
 
 
 def pesticide_calculator(input_file, scenario_dir, flow_file, recipe_path, hydro_path, output_path, input_years):
@@ -30,14 +28,10 @@ def pesticide_calculator(input_file, scenario_dir, flow_file, recipe_path, hydro
 
             scenarios = recipe_files[recipe_id][year]
 
-# MMF  Sub in [year] for total_runoff_by_year? Already read in all 4 columns in hydro file (in read.hydro)
-#      should we also try to construct new runoff array, built from using 2010-2013 hydro sequentially, backwards in time? 
-#      so 2013 hydro for 2013 simulation,...2010 hydro for 2010, etc 
-            total_runoff = total_runoff_by_year[2010]  # @@@ - total_runoff_by_year[year] (not using 2011-2013)
+            total_runoff = total_runoff_by_year[year]  # @@@ - total_runoff_by_year[year]
 
             total_runoff_mass = np.zeros_like(total_runoff)  # Initializes an array to hold daily total runoff mass
 
-# MMF Reading pickle here?
             for scenario_file, area in scenarios:
 
                 # Read scenario
@@ -57,11 +51,7 @@ def pesticide_calculator(input_file, scenario_dir, flow_file, recipe_path, hydro
                 # Update total runoff
                 total_runoff_mass += runoff_mass * area
 
-# MMF - INSERT call to TIME OF TRAVEL calc here - to find total runoff mass for larger drainages...
-#       (Such as below, but should we change Diagnostics to "True"?)
-                time_of_travel(lake_file, upstream_file, sam_output_file, output_dir, output_format, diagnostics=True)
-
-# MMF - Then we probably want to perform Water Body Calcs on both sets of runoff masses: (1) NHDbasin outlets, and (2) larger drainages...
+# MMF - Perform Water Body Calcs on both sets of runoff masses: (1) NHDbasin outlets, and (2) larger drainages...
 
 # MMF - Addition of solute holding capacity and mass transfer functions needed for Water Body Calcs
             capacity1, capacity2, fw1, fw2, theta, sed_conv_factor, omega = \
@@ -80,13 +70,13 @@ def main():
 
 # MMF - relative paths
 
-    input_file = r"..\..\MarkTwain\Inputs\SAM.inp"   #r"T:\SAM\FortranToPy\Inputs\SAM.inp"
-    flow_file =  r"..\..\MarkTwain\MO_flows.csv"     #r"T:\SAM\FortranToPy\MarkTwain\MO_flows.csv"
+    input_file = r"..\..\MarkTwain\Inputs\SAM.inp"
+    flow_file =  r"..\..\MarkTwain\MO_flows.csv"
 
-    scenario_dir = r"..\..\MarkTwain\Scenarios\Pickled"  #r"T:\SAM\FortranToPy\MarkTwain\Scenarios\Pickled"
-    recipe_dir = r"..\..\MarkTwain\Recipes" #r"T:\SAM\FortranToPy\MarkTwain\Recipes"
-    hydro_dir = r"..\..\MarkTwain\Hydro"    #r"T:\SAM\FortranToPy\MarkTwain\Hydro"
-    output_dir = r"..\..\Outputs\Python"    #r"T:\SAM\Outputs\Python"
+    scenario_dir = r"..\..\MarkTwain\Scenarios\Pickled"
+    recipe_dir = r"..\..\MarkTwain\Recipes"
+    hydro_dir = r"..\..\MarkTwain\Hydro"
+    output_dir = r"..\..\Outputs\Python"
 
     recipe_format = "nhd_recipe_(\d+?)_(\d{4}).txt"
     hydro_format = "{}_hydro.txt"

@@ -54,8 +54,6 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_file,
 
                 # Create an un-convolved output dataset for comparison
 
- # MMF - Can we feed mass time series (already incorporating time of travel) into water body calcs?
-
                 if aggregate:
                     functions.preconvolution_report(reach, dates, output_file, local_output, baseflow)
 
@@ -69,7 +67,6 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_file,
                     functions.convolve_flowing(upstream_paths, upstream_times, local_output, local_lookup,
                                                convolve=convolve)
 
-# MMF To prevent repeating calc of concs, we may want to comment out conc calc here and just do in waterbody_concentration function?
                 # Unpack time series and compute concentration
                 total_flow, total_conc, runoff_conc = \
                     functions.compute_concentration(runoff_mass, total_runoff, baseflow)
@@ -91,8 +88,6 @@ def main():
 
     region = '07'
     sam_output_id = "mark_twain"
-
-#MMF - relative paths
 
     lakefile_dir = r"..\..\Preprocessed\LakeFiles"
     upstream_repository = r"..\..\Preprocessed\UpstreamPaths"
