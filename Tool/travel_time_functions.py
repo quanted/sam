@@ -3,11 +3,11 @@ import numpy as np
 from collections import defaultdict
 
 
-def bin_reaches(upstream_paths, upstream_times, interval=1):
-
+def bin_reaches(upstream_paths, upstream_times, interval=1, round_down=True):
     # Divide lotic reaches into tanks based on travel times
+    round_func = np.int32 if round_down else np.round
     reach_times = np.array(list(filter(lambda x: x[0] > 0, set(zip(upstream_paths.flat, upstream_times.flat))))).T
-    reach_times[1] = np.round(reach_times[1] / interval) * interval  # Round times to the nearest interval
+    reach_times[1] = round_func(reach_times[1] / interval) * interval  # Round times to the nearest interval
     intervals = sorted(np.unique(reach_times[1]))  # Every interval containing reaches
     tanks = ((tank, list(reach_times[0, reach_times[1] == tank])) for tank in intervals)  # ((ivl, reach),...)
 
@@ -59,7 +59,7 @@ def compute_concentration(mass_time_series, runoff_time_series, baseflow):
     return total_flow, concentration, runoff_conc
 
 
-def convolve_flowing(upstream_paths, upstream_times, upstream_output, upstream_lookup, interval=1, convolve=True, diagnose=False):
+def process_flowing(upstream_paths, upstream_times, upstream_output, upstream_lookup, interval=1, convolve=True, diagnose=False):
     """
     Apply convolution to flowing reaches
     :param upstream_paths: 2d array containing all of the flow paths upstream of the active reach
@@ -96,11 +96,11 @@ def convolve_flowing(upstream_paths, upstream_times, upstream_output, upstream_l
     return output_time_series
 
 
-def convolve_reservoirs(local_output, local_lookup, reach_to_waterbody, local_paths, residence_times):
+def process_reservoirs(local_output, local_lookup, reach_to_waterbody, local_paths, residence_times):
     """
     Convolves the mass and runoff time series for reaches upstream of reservoirs
-    :param local_output:
-    :param local_lookup:
+    :param local_output: SAM output array trimmed to reaches upstream of the active reach
+    :param local_lookup: Lookup dictionary for matching a reach ID to a row number in the SAM output array
     :param local_paths:
     :param local_lakes:
     :param residence_times:
@@ -110,7 +110,7 @@ def convolve_reservoirs(local_output, local_lookup, reach_to_waterbody, local_pa
     n_dates = local_output.shape[2]
 
     # Get every lake upstream of the active reach, and all the reaches upstream of each of those lakes
-    upstream_reaches = defaultdict(set)
+    reaches_above_lake = defaultdict(set)
     upstream_lentics = set(local_lookup.keys()) & set(reach_to_waterbody.keys())  # All lentic reaches upstream of active reach
     for upstream_lentic in upstream_lentics:
         lake = reach_to_waterbody[upstream_lentic]  # The lake corresponding to the lentic reach
@@ -118,10 +118,10 @@ def convolve_reservoirs(local_output, local_lookup, reach_to_waterbody, local_pa
         for path_index in path_indices:
             full_path = local_paths[path_index]
             upstream_of_reach = full_path[np.argmax(full_path == upstream_lentic):]
-            upstream_reaches[lake] |= set(upstream_of_reach)
+            reaches_above_lake[lake] |= set(upstream_of_reach)
 
     # Convolve each reach upstream of a lake against that lakes's residence time
-    for lake, reaches in upstream_reaches.items():
+    for lake, reaches in reaches_above_lake.items():
         residence_time = residence_times.get(lake, 0.0)
         indices = map(local_lookup.get, reaches)
         if residence_time > 1.5:
@@ -179,6 +179,9 @@ def trim_to_upstream(sam_output, sam_lookup, upstream_paths):
 
     return local_output, local_lookup
 
+def report_progress(i, n_reaches, ivl=50):
+    if not ((i + 1) % ivl):
+        print("{}/{}".format(i + 1, n_reaches))
 
 if __name__ == "__main__":
     print("This is a library. Run travel_time.py")

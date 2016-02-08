@@ -17,7 +17,6 @@ def map_sam_output(sam_output_dir, sam_output_format, year_filter=2010):
     return output_files
 
 
-
 def read_sam_output(output_files):
 
     # Written for header [Date, Conc(ug/L), RMass(kg), Runoff(m), RConc(ug/L), TotalFlow(m3), baseflow(m3)]

@@ -11,13 +11,11 @@ import write
 # reduce size of upstream_paths by getting rid of redundancies?
 # stream_calc = 0's
 # travel times for reservoirs need to be zero
-# rounding v thresholds for tank intervals?
 # sharp dropoff in concentration downstream of reservoir  (probably an artifact)
 # baseflow seasonal?
 
 
-def time_of_travel(lake_file, upstream_file, sam_output_file, output_file,
-                   convolve=True, aggregate=False):
+def time_of_travel(lake_file, upstream_file, sam_output_file, output_file, convolve=True, aggregate=False):
 
     # Read in compressed SAM output, lake file, and upstream path data
     sam_output, sam_lookup, dates = read.unpickle(sam_output_file)
@@ -30,11 +28,16 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_file,
         functions.classify_reaches(sam_lookup.keys(), outlet_dict, waterbody_to_reach)
 
     # Loop through all reaches with SAM output and run convolution
+    n_reaches = len(lotic_reaches)
     for i, reach in enumerate(lotic_reaches):
 
+<<<<<<< HEAD
         # Print progress
         if not ((i + 1) % 50):
             print("{}/{}".format(i + 1, len(lotic_reaches)))
+=======
+        functions.report_progress(i, n_reaches)  # Counter
+>>>>>>> master
 
         # Look up the location of the paths containing the active reach in the upstream paths array
         reach_address = path_map.get(reach)
@@ -59,12 +62,12 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_file,
 
                 # Convolve paths that pass through reservoirs
                 local_output = \
-                    functions.convolve_reservoirs(local_output, local_lookup, reach_to_waterbody, upstream_paths,
+                    functions.process_reservoirs(local_output, local_lookup, reach_to_waterbody, upstream_paths,
                                                   residence_times)
 
                 # Snap the travel times to an interval (portions of a day).  Default is 1-day
                 runoff_mass, total_runoff = \
-                    functions.convolve_flowing(upstream_paths, upstream_times, local_output, local_lookup,
+                    functions.process_flowing(upstream_paths, upstream_times, local_output, local_lookup,
                                                convolve=convolve)
 
                 # Unpack time series and compute concentration
@@ -83,11 +86,11 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_file,
 
 def main():
 
-    convolve = False
-    aggregate = False
+    convolve = True
+    aggregate = True
 
     region = '07'
-    sam_output_id = "mark_twain"
+    sam_output_id = "dummy_mtb"
 
     lakefile_dir = r"..\..\Preprocessed\LakeFiles"
     upstream_repository = r"..\..\Preprocessed\UpstreamPaths"
