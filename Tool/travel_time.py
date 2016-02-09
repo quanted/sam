@@ -31,13 +31,7 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_file, convo
     n_reaches = len(lotic_reaches)
     for i, reach in enumerate(lotic_reaches):
 
-<<<<<<< HEAD
-        # Print progress
-        if not ((i + 1) % 50):
-            print("{}/{}".format(i + 1, len(lotic_reaches)))
-=======
         functions.report_progress(i, n_reaches)  # Counter
->>>>>>> master
 
         # Look up the location of the paths containing the active reach in the upstream paths array
         reach_address = path_map.get(reach)
@@ -56,7 +50,6 @@ def time_of_travel(lake_file, upstream_file, sam_output_file, output_file, convo
                 local_output, local_lookup = functions.trim_to_upstream(sam_output, sam_lookup, upstream_paths)
 
                 # Create an un-convolved output dataset for comparison
-
                 if aggregate:
                     functions.preconvolution_report(reach, dates, output_file, local_output, baseflow)
 
@@ -92,12 +85,12 @@ def main():
     region = '07'
     sam_output_id = "dummy_mtb"
 
-    lakefile_dir = r"..\..\Preprocessed\LakeFiles"
-    upstream_repository = r"..\..\Preprocessed\UpstreamPaths"
-    sam_output_dir = r"..\..\Preprocessed\OutputCubes"
-    convolution_output_dir = r"..\..\Outputs\Convolved"
+    lakefile_dir = r"T:\SAM\Preprocessed\LakeFiles"
+    upstream_repository = r"T:\SAM\Preprocessed\UpstreamPaths"
+    sam_output_dir = r"T:\SAM\Preprocessed\OutputCubes"
+    convolution_output_dir = r"T:\SAM\Outputs\Convolved"
     if not convolve:
-        convolution_output_dir = r"..\..\Outputs\Unconvolved"
+        convolution_output_dir = r"T:\SAM\Outputs\Unconvolved"
 
     lakefile_format = "region_{}.p".format(region)
     upstream_format = "upstream_{}.p".format(region)

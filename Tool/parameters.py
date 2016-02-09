@@ -10,7 +10,8 @@ plant = {
 soil_params = {
     "delta_x": 0.02,			# Surface depth (m)
     "soil_distrib_2cm": 0.75,			# Soil distribution, top 2 cm. Revised for 1 compartment - uniform extraction
-    "runoff_effic": 0.266  # Runoff efficiency
+    "runoff_effic": 0.266,  # Runoff efficiency
+    "PRBEN": 0.5           # PRBEN factor - default PRZM
 }
 
 
