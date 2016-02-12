@@ -19,15 +19,17 @@ def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro
 
         print(recipe_id)
 
-        total_runoff_by_year = read.hydro(hydro_path, recipe_id, input_years, input.start_count)
+        total_runoff_by_year, total_erosion_by_year = read.hydro(hydro_path, recipe_id, input_years, input.start_count)  # MMF added erosion, or do we need separate line for setting erosion by year?
 
         for year in input_years:  # recipe_files[recipe_id]:
 
             scenarios = recipe_files[recipe_id][year]
 
             total_runoff = total_runoff_by_year[year]
+            total_erosion = total_erosion_by_year[year]       # MMF added erosion
 
-            total_runoff_mass = np.zeros_like(total_runoff)  # Initializes an array to hold daily total runoff mass
+            total_runoff_mass = np.zeros_like(total_runoff)   # Initializes an array to hold daily total runoff mass
+            total_erosion_mass = np.zeros_like(total_erosion) # MMF added erosion
 
             for scenario_file, area in scenarios:
 
@@ -38,19 +40,21 @@ def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro
                 pesticide_mass_soil = \
                     functions.applications(input, scenario)
 
-                # Determine the loading of pesticide into runoff
-                runoff_mass = functions.transport(pesticide_mass_soil, scenario)
+                # Determine the loading of pesticide into runoff and erosion - MMF added erosion
+                runoff_mass, erosion_mass = functions.transport(pesticide_mass_soil, scenario)
 
                 # Update total runoff
                 total_runoff_mass += runoff_mass * area
+                # Update total erosion
+                total_erosion_mass += erosion_mass * area
 
             # Compute concentration in water
-            q_tot, baseflow, total_conc, runoff_conc = \
+            q_tot, baseflow, total_conc, runoff_conc, daily_depth, aqconc_avg1, aqconc_avg2, aq1_store = \
                 functions.waterbody_concentration(q, xc, total_runoff, total_runoff_mass)
 
             # Write daily output
-            write.daily(output_path.format(recipe_id, year), total_conc, runoff_conc, total_runoff_mass,
-                        input.dates, q_tot, baseflow, total_runoff, year)
+            write.daily(output_path.format(recipe_id, year), total_conc, runoff_conc, runoff_mass, input.dates,
+                        aqconc_avg1, aqconc_avg2, aq1_store, q_tot, baseflow, total_runoff, year)
 
 
 def main():

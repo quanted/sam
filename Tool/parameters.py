@@ -9,9 +9,13 @@ plant = {
 # Parameters related to soils in the field
 soil_params = {
     "delta_x": 0.02,			# Surface depth (m)
-    "soil_distrib_2cm": 0.75,			# Soil distribution, top 2 cm. Revised for 1 compartment - uniform extraction
+    "soil_distrib_2cm": 0.75,	# Soil distribution, top 2 cm. Revised for 1 compartment - uniform extraction
     "runoff_effic": 0.266,  # Runoff efficiency
-    "PRBEN": 0.5           # PRBEN factor - default PRZM
+    "PRBEN": 0.5,            # PRBEN factor - default PRZM5, MMF
+    "erosion_effic": 0.266,  # Erosion efficiency - subject to change, MMF
+    "soil_depth": 0.1,       # soil depth in cm - subject to change, MMF
+    "delx": 2.0,              # cm, one 2 cm compartment, MMF
+    "delt": 86400.           # seconds per day, time interval
 }
 
 
@@ -27,8 +31,8 @@ water_column_params = {
 
 # Benthic Parameters - USEPA OPP defaults
 benthic_params = {
-    "depth": 0,			# benthic depth (m)
-    "porosity": 0,		# benthic porosity
+    "depth": 0.05,			# benthic depth (m)
+    "porosity": 0.65,		# benthic porosity
     "bulk_density": 1,  # bulk density, dry solid mass/total vol (g/cm3)
     "froc2": 0,			# benthic organic carbon fraction
     "doc2": 5,			# benthic dissolved organic carbon content (mg/L)

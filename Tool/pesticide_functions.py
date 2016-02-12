@@ -106,6 +106,12 @@ def transport(pesticide_mass_soil, scenario):
     scenario.runoff *= soil.runoff_effic
     leaching_dates = np.where(scenario.leaching > 0.0)[0]
 
+    # MMF - Erosion efficiency and enrichment
+    enrich = math.exp(2.0 - (0.2*math.log10(scenario.erosion)))
+    erosion_intensity = soil.erosion_effic/soil.soil_depth      # Assume uniform extraction, no decline, MMF
+    enriched_eroded_mass = (scenario.erosion/100000.)*enrich    # g/cm2 = kg/ha*(ha/10000 m2)(1000 g/kg)(m2/10000 cm2) = 1/100000
+    scenario.erosion = enriched_eroded_mass*kd*erosion_intensity*10000.  #g/cm2 *(m3/g)*10000cm2/m2 -> [m]  !Enrich based on PRZM, kd: kd sediment may differ from kd erosion
+
     # Get retardation and deg_total
     retardation = (scenario.soil_water / soil.delta_x) + (scenario.bulk_density * scenario.kd)
     deg_total = scenario.degradation_aqueous + ((scenario.runoff + scenario.leaching) / (soil.delta_x * retardation))
@@ -119,34 +125,36 @@ def transport(pesticide_mass_soil, scenario):
 
     runoff_mass = np.zeros_like(scenario.runoff)
     runoff_mass[leaching_dates] = \
-        (((total_mass / retardation / soil.delta_x) / deg_total) * (1 - degradation_rate) * scenario.runoff)[leaching_dates]
+        (((total_mass / retardation / soil.delta_x) / deg_total) * (1 - degradation_rate) * scenario.runoff)[leaching_dates] #conc[kg/m3]*[m] = kg/m2
 
-    #MMF- Save/calculate INPUT MASSES for water body from field   
-        
-       # m1_input = runoff_mass(:,1,chem_index) +(1.-PRBEN)*runoff_mass(:,2,chem_index)    !note: rfx includes spraydrift and runoff
-       # m2_input = PRBEN*runoff_mass(:,2,chem_index)
+    #MMF - Erosion mass
+    erosion_mass = np.zeros_like(scenario.erosion)
+    erosion_mass[leaching_dates] = \
+        (((total_mass / retardation / soil.delta_x) / deg_total) * (1 - degradation_rate) * scenario.erosion)[leaching_dates] #conc[kg/m3]*[m] = kg/m2
 
-    return np.hstack([0.0, runoff_mass[:-1]])  # JCH - Not sure why I have to offset by a day here, but it works.
+    return np.hstack([0.0, runoff_mass[:-1]]), np.hstack([0.0, erosion_mass[:-1]])  # JCH - Not sure why I have to offset by a day here, but it works
+    #MMF- want to return erosion_mass in addition to runoff_mass. Trip can you confirm this is right way to do?
 
-
-def waterbody_concentration(q, xc, total_runoff, total_runoff_mass, degradation_aqueous,
-                            process_benthic=True, area_wb=None, daily_depth=None):
-
+def waterbody_concentration(q, xc, total_runoff, total_runoff_mass, total_erosion_mass, degradation_aqueous,
+                            process_benthic=True, area_wb=None, daily_depth=None):  #MMF - we need area_wb, daily_depth, depth_0 for benthic calcs to work
 
     def solute_holding_capacity(koc, area_wb, daily_depth, depth_0):
         '''
         Calculates Solute Holding capacities and mass transfer between water column and benthic regions
         '''
+        area_wb = 40.*40.           #MMF-placeholder (m2)
+        daily_depth = xc/40.        #MMF-placeholder, daily depth in water (m)...eventually make dimensions[d]
+        depth_0 = 10.               #MMF-placeholder, initial water body depth (m)
 
         # Aqueous volumes in each region
-        vol1a = daily_depth * area_wb  # total volume in water column, approximately equal to water volume alone
+        vol1 = daily_depth * area_wb  # total volume in water column, approximately equal to water volume alone
         vol2a = benthic.depth * area_wb  # total benthic volume
         vol2 = vol2a * benthic.porosity  # with EXAMS parameters   v2  = VOL2*BULKD*(1.-100./PCTWA)
 
         # Default EXAMS conditions for partitioning
-        kow = koc / .35  # DEFAULT EXAMS CONDITION ON Kow  p.35
-        kpdoc1 = kow * .074  # DEFAULT RELATION IN EXAMS (LITTORAL)
-        kpdoc2 = koc  # DEFAULT RELATION IN EXAMS (BENTHIC) p.16 of EXAMS 2.98 (or is it Kow*.46 ?)
+        kow = koc / .35         # DEFAULT EXAMS CONDITION ON Kow  p.35
+        kpdoc1 = kow * .074     # DEFAULT RELATION IN EXAMS (LITTORAL)
+        kpdoc2 = koc            # DEFAULT RELATION IN EXAMS (BENTHIC) p.16 of EXAMS 2.98 (or is it Kow*.46 ?)
         xkpb = 0.436 * kow ** .907  # DEFAULT RELATION IN EXAMS
 
         # mass in littoral region
@@ -173,7 +181,7 @@ def waterbody_concentration(q, xc, total_runoff, total_runoff_mass, degradation_
         # solute holding capacity in region 2
         capacity_2 = kd_sed_2 * m_sed_2 + kd_bio * m_bio_2 + kd_doc_2 * m_doc_2 + vol2
 
-        fw1 = vol1 / capacity_1
+        fw1 = vol1 / capacity_1     #MMF - fw1 will have dimensions of [d], once daily_depth is function of [d] and vol1 is function of [d]
         fw2 = vol2 / capacity_2
 
         theta = capacity_2 / capacity_1
@@ -248,6 +256,7 @@ def waterbody_concentration(q, xc, total_runoff, total_runoff_mass, degradation_
 
 
     from parameters import benthic
+    from parameters import soil
     from parameters import water_column as wc
 
     # Develop hydrograph
@@ -262,7 +271,8 @@ def waterbody_concentration(q, xc, total_runoff, total_runoff_mass, degradation_
     daily_concentration = np.zeros_like(total_runoff)
     daily_concentration[conc_days] = total_runoff_mass[conc_days] / volume[conc_days]
 
-    k_adj = total_flow / volume
+    degradation_aqueous = 0.693/input.soil_halfLife     #MMF - need to add in deg aqueous rate
+    k_adj = (total_flow / volume) + degradation_aqueous #MMF - updated with deg aqueous rate, Include within daily loop below because total_flow & volume vary by day?
     exp_k = np.exp(-k_adj)
     avgconc_adj = np.zeros_like(total_runoff)
 
@@ -275,26 +285,29 @@ def waterbody_concentration(q, xc, total_runoff, total_runoff_mass, degradation_
     capacity1, capacity2, fw1, fw2, theta, sed_conv_factor, omega = solute_holding_capacity(koc)
 
     for d in range(daily_concentration.size):
-
         conc += daily_concentration[d]
         avgconc_adj[d] = conc / k_adj[d] * (1 - exp_k[d])
         conc *= exp_k[d]
 
+        #MMF - Define input aqueous and sediment mass to waterbody from runoff and erosion
+        m1_input = runoff_mass[d]+(1.-soil.PRBEN)*erosion_mass[d]
+        m2_input = soil.PRBEN*erosion_mass[d]
+
         # MMF  Addition of Benthic region, assume VVWM benthic properties
         m1 = mn1 + m1_input[d]  # daily peak mass
         m2 = mn2 + m2_input[d]
-        m1_store[d] = m1
-        m2_store[d] = m2
+        m1_store = m1
+        m2_store = m2
 
         # MMF Convert to aqueous concentration
         aqconc1 = m1 * fw1[d] / daily_depth[d] / area_wb
-        aqconc2 = m2 * fw2 / (benthic.depth * area_wb * porosity )
+        aqconc2 = m2 * fw2 / (benthic.depth * area_wb * benthic.porosity)
 
         # ******************************************************
-        # store these beginning day aquatic concentrations
+        # Store these beginning day aquatic concentrations, considered Peak Aqueous Daily Conc in Water Column
         # these variables are only used for delivery to output routines
-        aq1_store[d] = aqconc1
-        aq2_store[d] = aqconc2
+        aq1_store = aqconc1[d]
+        aq2_store = aqconc2[d]
         # ******************************************************
 
         new_aqconc1, new_aqconc2, aqconc_avg1, aqconc_avg2 = \
@@ -302,18 +315,21 @@ def waterbody_concentration(q, xc, total_runoff, total_runoff_mass, degradation_
 
         # Convert back to masses
         mn1 = new_aqconc1 / fw1[d] * daily_depth[d] * area_wb
-        mn2 = new_aqconc2 / fw2 * benthic.depth * area_wb *  benthic.porosity
+        mn2 = new_aqconc2 / fw2 * benthic.depth * area_wb * benthic.porosity
 
-        mavg1_store[d] = aqconc_avg1[d] / fw1[d] * daily_depth[d] * area_wb
+        mavg1_store = aqconc_avg1 / fw1[d] * daily_depth[d] * area_wb
 
-    # Simple concentration calc - for comparsion
-    conc_simple = total_runoff_mass / q_adj_tot
+
+    # Simple concentration calc - for comparison - MMF not sure this is necessary
+    # conc_simple = total_runoff_mass[d] / total_flow[d]
 
     # Adjust for change in units
     runoff_conc = np.nan_to_num((total_runoff_mass * 1000000.) / total_runoff)
     avgconc_adj *= 1000000.
 
-    return total_flow, baseflow, avgconc_adj, runoff_conc
+    return total_flow, baseflow, avgconc_adj, runoff_conc, daily_depth, aqconc_avg1, aqconc_avg2, aq1_store  #totalflow,baseflow,DailyAvgAqConc in WC (old method),
+                                                # dailydepth, DailyAvgAqConc in WC kg/m3, DailyAvgAqConc in Benthic kg/m3, DailyPeakAqConc in WC kg/m3
+
 
 
 

@@ -42,14 +42,17 @@ def hydro(hydro_path, reach, years, start_count):
     hydro_file = hydro_path.format(reach)
     if os.path.isfile(hydro_file):
         with open(hydro_file) as f:
-            num_records = int(float(f.readline().split()[0]))
+            num_records = int(float(f.readline().split()[0]))  # MMF-guess we aren't saving out totalareas by year here
+            #MMF with erosion, hydro files will now include 4 additional columns for erosion 2010-2014
             total_runoff = {year: np.zeros(num_records - start_count) for year in years}
+            total_erosion = {year: np.zeros(num_records - start_count) for year in years}
             for i, line in enumerate(f):
                 if i >= start_count:
-                    line_values = map(str.strip, line.split())  # clean formatting marks
+                    line_values = map(str.strip, line.split())  # clean formatting marks, space delimited
                     for year, value in zip(years, line_values):
                         total_runoff[year][i - start_count] = float(value)
-        return total_runoff
+                        total_erosion[year][i - start_count] = float(value) # MMF Need to read in 4 additional columns here for erosion2010-2013, but not sure coding within current loop works?
+        return total_runoff, total_erosion  # MMF can we return total_erosion also here, with same return statement?
     else:
         sys.exit("Hydro file {} not found".format(hydro_file))
 
@@ -62,14 +65,16 @@ def scenario(path, start_count):
                        "count_runoff",      # Number of runoff days
                        "date_runoff",       # Dates of runoff days
                        "raw_runoff",        # Runoff sequence
+                       "date_erosion",      # Dates of erosion days
+                       "raw_erosion",       # Erosion sequence
                        "soil_water_m_all",  # Soil water
                        "count_velocity",    # Number of leaching days
                        "date_velocity",     # Dates of leaching days
                        "raw_leaching",      # Leaching sequence
                        "org_carbon",        # Percent organic carbon
                        "bulk_density",      # Bulk density
-                       "rain",              # Rain sequence
-                       "plant_factor"      # Plant factor
+                       "rain",              # Daily Rainfall
+                       "plant_factor"       # Daily Plant factor
                        ]
     
     with open(path, 'rb') as f:
@@ -81,9 +86,13 @@ def scenario(path, start_count):
 
     s = ParameterSet(**p)
 
-    # Initalize runoff and leaching arrays
+    # Initalize runoff, erosion, and leaching arrays
     s.runoff = np.zeros_like(s.rain)
     s.runoff[np.int32(s.date_runoff) - 2] = s.raw_runoff
+
+    s.erosion = np.zeros_like(s.rain)
+    s.erosion[np.int32(s.date_erosion) - 2] = s.raw_erosion
+
     s.leaching = np.zeros_like(s.rain)
     s.leaching[np.int32(s.date_velocity) - 2] = s.raw_leaching
 
@@ -92,8 +101,8 @@ def scenario(path, start_count):
     
     # Trim to start_count
     s.soil_water_m_all = np.hstack((s.soil_water_m_all[start_count + 1:], [0.0]))  # @@@ - why does this need to be offset
-    s.plant_factor, s.rain, s.runoff, s.leaching = \
-        (array[start_count:] for array in (s.plant_factor, s.rain, s.runoff, s.leaching))
+    s.plant_factor, s.rain, s.runoff, s.erosion, s.leaching = \
+        (array[start_count:] for array in (s.plant_factor, s.rain, s.runoff, s.erosion, s.leaching))
 
     return s
 
@@ -121,7 +130,7 @@ def input_file(input_file):
             "chem": fetch(f),			                    # Chemical name
             "number_crop_ids": int(fetch(f)),               # Total # crops
             "cropdesired": list(map(int, fetch(f).split())),# Crop IDs
-            "koc": float(fetch(f)),			                # Koc, read as mL/g
+            "koc": float(fetch(f)),			                # Kd, read as mL/g, Kd = Koc*org_carbon
             "kflag": int(fetch(f)),			                # Koc=1, Kd=2
             "soil_halfLife": float(fetch(f)),               # Soil half life
             "appflag": int(fetch(f)),			            # Application by Crop Stage (1) or User-defined (2)
@@ -150,8 +159,11 @@ def input_file(input_file):
         i = ParameterSet(**p)
 
         # Initialize variables
-        i.appmass_init /= 10000.0  # convert applied Mass to kg/m2		"degradation_aqueous": 0.693 / Soil_HalfLife,			# aqueous, per day
+        i.appmass_init /= 10000.0  # convert applied Mass to kg/m2	"degradation_aqueous": 0.693 / Soil_HalfLife,	#aqueous, per day
         i.koc /= 1000.0  # Now in m3/kg
+        if i.kflag==2:
+            i.koc = i.koc*scenario.org_carbon  #MMF
+            kd = i.koc
 
         # Initialize arrays
         i.appnumrec = \
