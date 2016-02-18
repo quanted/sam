@@ -6,7 +6,7 @@ import pesticide_functions as functions
 import write
 
 
-def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro_path, output_path, input_years):
+def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro_path, output_file, input_years):
 
     # Read SAM input file
     input = read.input_file(input_file)
@@ -19,42 +19,40 @@ def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro
 
         print(recipe_id)
 
-        total_runoff_by_year, total_erosion_by_year = read.hydro(hydro_path, recipe_id, input_years, input.start_count)  # MMF added erosion, or do we need separate line for setting erosion by year?
+        total_runoff_by_year, total_erosion_by_year = read.hydro(hydro_path, recipe_id, input_years, input.start_count)
 
-        for year in input_years:  # recipe_files[recipe_id]:
+        for year in input_years:
 
+            # Initialize arrays for runoff and erosion totals
+            # JCH - What are we doing with total_erosion_mass? Is this going into the daily output?
+            total_runoff, total_erosion = total_runoff_by_year[year], total_erosion_by_year[year]
+            total_runoff_mass, total_erosion_mass = np.zeros_like(total_runoff), np.zeros_like(total_erosion)
+
+            # Loop through scenarios contained in the recipe
             scenarios = recipe_files[recipe_id][year]
-
-            total_runoff = total_runoff_by_year[year]
-            total_erosion = total_erosion_by_year[year]       # MMF added erosion
-
-            total_runoff_mass = np.zeros_like(total_runoff)   # Initializes an array to hold daily total runoff mass
-            total_erosion_mass = np.zeros_like(total_erosion) # MMF added erosion
-
             for scenario_file, area in scenarios:
 
                 # Read scenario
-                scenario = read.scenario(scenario_file, input.start_count)
+                scenario = read.scenario(scenario_file, input)
 
                 # Compute pesticide applications
-                pesticide_mass_soil = \
-                    functions.applications(input, scenario)
+                pesticide_mass_soil = functions.applications(input, scenario)
 
                 # Determine the loading of pesticide into runoff and erosion - MMF added erosion
                 runoff_mass, erosion_mass = functions.transport(pesticide_mass_soil, scenario)
 
-                # Update total runoff
+                # Update runoff and erosion totals
                 total_runoff_mass += runoff_mass * area
-                # Update total erosion
                 total_erosion_mass += erosion_mass * area
 
             # Compute concentration in water
-            q_tot, baseflow, total_conc, runoff_conc, daily_depth, aqconc_avg1, aqconc_avg2, aq1_store = \
-                functions.waterbody_concentration(q, xc, total_runoff, total_runoff_mass)
+            total_flow, baseflow, total_conc, runoff_conc, daily_depth, aqconc_avg1, aqconc_avg2, aq1_store = \
+                functions.waterbody_concentration(q, xc, total_runoff, total_runoff_mass,
+                                                  input.degradation_aqueous, scenario.koc)
 
             # Write daily output
-            write.daily(output_path.format(recipe_id, year), total_conc, runoff_conc, runoff_mass, input.dates,
-                        aqconc_avg1, aqconc_avg2, aq1_store, q_tot, baseflow, total_runoff, year)
+            write.daily(output_file, input.dates, total_flow, baseflow, total_runoff, total_conc, runoff_conc,
+                        total_runoff_mass, aqconc_avg1, aqconc_avg2, aq1_store)
 
 
 def main():

@@ -39,10 +39,13 @@ def flows(flow_file, dates, id_field="COMID"):
 
 
 def hydro(hydro_path, reach, years, start_count):
+    """
+    Read hydro file, which contains modeled runoff and erosion time series
+    """
     hydro_file = hydro_path.format(reach)
     if os.path.isfile(hydro_file):
         with open(hydro_file) as f:
-            num_records = int(float(f.readline().split()[0]))  # MMF-guess we aren't saving out totalareas by year here
+            num_records = int(float(f.readline().split()[0]))  # MMF-guess we aren't saving out total areas by year here
             #MMF with erosion, hydro files will now include 4 additional columns for erosion 2010-2014
             total_runoff = {year: np.zeros(num_records - start_count) for year in years}
             total_erosion = {year: np.zeros(num_records - start_count) for year in years}
@@ -132,7 +135,7 @@ def input_file(input_file):
             "cropdesired": list(map(int, fetch(f).split())),# Crop IDs
             "koc": float(fetch(f)),			                # Kd, read as mL/g, Kd = Koc*org_carbon
             "kflag": int(fetch(f)),			                # Koc=1, Kd=2
-            "soil_halfLife": float(fetch(f)),               # Soil half life
+            "soil_halflife": float(fetch(f)),               # Soil half life
             "appflag": int(fetch(f)),			            # Application by Crop Stage (1) or User-defined (2)
             "distribflag": int(fetch(f)),		        	# Application distribution flag (1=unif, 2=unif step, 3=triang)
             "cropstage": int(fetch(f)),		                # Crop stage for app (pl=1,emer=2,mat=3,harv=4) or 0
@@ -159,23 +162,30 @@ def input_file(input_file):
         i = ParameterSet(**p)
 
         # Initialize variables
-        i.appmass_init /= 10000.0  # convert applied Mass to kg/m2	"degradation_aqueous": 0.693 / Soil_HalfLife,	#aqueous, per day
+        i.appmass_init /= 10000.0  # convert applied Mass to kg/m2
+        i.degradation_aqueous = 0.693 / i.soil_halflife	 #aqueous, per day
         i.koc /= 1000.0  # Now in m3/kg
-        if i.kflag==2:
-            i.koc = i.koc*scenario.org_carbon  #MMF
+
+        """
+        JCH: This doesn't work here because this routine (reading the input file) takes place before reading the
+        scenario.  The assignment of koc based on org_carbon takes place in the function read.scenario, and koc is
+        assigned to the scenario parameter set, not input
+        if i.kflag == 2:
+            i.koc = i.koc * scenario.org_carbon  #MMF
             kd = i.koc
+        """
 
         # Initialize arrays
         i.appnumrec = \
             np.int64(np.append(np.full(i.napps, i.appnumrec_init, np.zeros((i.start_count + i.ndates) -i.napps))))
 
-        i.appmass = \
-            np.append(np.full(i.napps, i.appmass_init), np.zeros((i.start_count + i.ndates) -i.napps))
+        i.appmass = np.append(np.full(i.napps, i.appmass_init), np.zeros((i.start_count + i.ndates) -i.napps))
 
         i.start_count -= 1  # Adjustment for zero based numbering in Python
 
         # Dates
-        i.dates = [datetime.date(p.firstyear, p.firstmon, p.firstday) + datetime.timedelta(days=i) for i in range(p.ndates)]
+        i.dates = \
+            [datetime.date(p.firstyear, p.firstmon, p.firstday) + datetime.timedelta(days=i) for i in range(p.ndates)]
 
         i.applications =  ParameterSet(**{"twindow1":i.twindow1, "twindow2":i.twindow2, "pct1":i.pct1, "pct2":i.pct2})
 

@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/PesticideCalculator.iml" filepath="$PROJECT_DIR$/.idea/PesticideCalculator.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/SAMpy.iml" filepath="$PROJECT_DIR$/.idea/SAMpy.iml" />
     </modules>
   </component>
 </project>
