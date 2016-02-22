@@ -6,7 +6,8 @@ import pesticide_functions as functions
 import write
 
 
-def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro_path, output_file, input_years):
+def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro_path, output_file, input_years,
+                         process_benthic=True, process_erosion=True):
 
     # Read SAM input file
     input = read.input_file(input_file)
@@ -47,8 +48,9 @@ def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro
 
             # Compute concentration in water
             total_flow, baseflow, total_conc, runoff_conc, daily_depth, aqconc_avg1, aqconc_avg2, aq1_store = \
-                functions.waterbody_concentration(q, xc, total_runoff, total_runoff_mass,
-                                                  input.degradation_aqueous, scenario.koc)
+                functions.waterbody_concentration(q, xc, total_runoff, runoff_mass, erosion_mass,
+                                                  process_benthic, area_wb, daily_depth,
+                                                  input.degradation_aqueous, input.koc)
 
             # Write daily output
             write.daily(output_file, input.dates, total_flow, baseflow, total_runoff, total_conc, runoff_conc,
@@ -75,7 +77,11 @@ def main():
 
     input_years = [2010, 2011, 2012, 2013]
 
-    pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro_path, output_path, input_years)
+    process_benthic = True
+    process_erosion = True
+
+    pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro_path, output_path, input_years,
+                         process_benthic, process_erosion)
 
 if __name__ == "__main__":
     main()

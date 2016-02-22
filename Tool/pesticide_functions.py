@@ -28,7 +28,7 @@ def applications(input, scenario):
         # Creates a 1d array that counts the number of days since the last positive value
         return np.arange(len(a)) - np.hstack(([0.0], np.maximum.accumulate(np.arange(len(a)) * (a > 0))[:-1]))
 
-    app = input.applications
+    app = input.applications  # Shortcut to application timing details
 
     # Create local copies of application data arrays
     appmass = np.copy(input.appmass_global)
@@ -82,6 +82,9 @@ def applications(input, scenario):
 
 
 def transport(pesticide_mass_soil, scenario):
+    """
+    Simulate transport of pesticide through runoff and erosion
+    """
     from parameters import soil
 
     # Returns an array in which a value from 'a' is added and 'b' is multiplied on each iteration
@@ -95,7 +98,7 @@ def transport(pesticide_mass_soil, scenario):
     enrich = math.exp(2.0 - (0.2 * math.log10(scenario.erosion)))
     erosion_intensity = soil.erosion_effic / soil.soil_depth  # Assume uniform extraction, no decline, MMF
     enriched_eroded_mass = (scenario.erosion / 100000.) * enrich  # kg/ha -> g/cm2 (kg/ha*(ha/10000 m2)(1000 g/kg)(m2/10000 cm2) = 1/100000
-    scenario.erosion = enriched_eroded_mass * kd * erosion_intensity * 10000.  # g/cm2 *(m3/g)*10000cm2/m2 -> [m]  !Enrich based on PRZM, kd: kd sediment may differ from kd erosion
+    scenario.erosion = enriched_eroded_mass * scenario.kd * erosion_intensity * 10000.  # g/cm2 *(m3/g)*10000cm2/m2 -> [m]  !Enrich based on PRZM, kd: kd sediment may differ from kd erosion
 
     # Get retardation and deg_total
     retardation = (scenario.soil_water / soil.delta_x) + (scenario.bulk_density * scenario.kd)
@@ -127,10 +130,9 @@ def transport(pesticide_mass_soil, scenario):
 
 
 def waterbody_concentration(q, xc, total_runoff, runoff_mass, erosion_mass,
-                            area_wb, daily_depth, depth_init, degradation_aqueous, koc,
-                            process_benthic=True):  # MMF - we need area_wb, daily_depth, depth_0 for benthic calcs to work
+                            process_benthic=True, area_wb=None, daily_depth=None, degradation_aqueous=None, koc=None):  # MMF - we need area_wb, daily_depth, depth_0 for benthic calcs to work
 
-    def solute_holding_capacity(koc, area_wb, daily_depth, depth_0):
+    def solute_holding_capacity():
         '''
         Calculates Solute Holding capacities and mass transfer between water column and benthic regions
         '''
@@ -267,45 +269,54 @@ def waterbody_concentration(q, xc, total_runoff, runoff_mass, erosion_mass,
     exp_k = np.exp(-k_adj)                               # JCH - total flow and volume are already time-series here, so k_adj becomes a time series as well. If neither total flow or volume are
     avgconc_adj = np.zeros_like(total_runoff)            #       modified in the loop then the k_adj calculation doesn't need to be in the loop
 
-    # Compute benthic solute holding capacity if considering benthic region
-    capacity1, capacity2, fw1, fw2, theta, sed_conv_factor, omega = solute_holding_capacity(koc)
+    if process_benthic:
 
-    m1_input = runoff_mass + (1. - soil.prben) * erosion_mass
-    m2_input = soil.prben * erosion_mass
+        # Compute benthic solute holding capacity
+        capacity1, capacity2, fw1, fw2, theta, sed_conv_factor, omega = solute_holding_capacity()
 
-    # Beginning day aquatic concentrations, considered Peak Aqueous Daily Conc in Water Column
-    aq_conc1, aq_conc2 = np.zeros(n_dates), np.zeros(n_dates)
-    aqconc_avg1, aqconc_avg2 = np.zeros(n_dates), np.zeros(n_dates)
+        m1_input = runoff_mass + (1. - soil.prben) * erosion_mass
+        m2_input = soil.prben * erosion_mass
+
+        # Beginning day aquatic concentrations, considered Peak Aqueous Daily Conc in Water Column
+        aq_conc1, aq_conc2 = np.zeros(n_dates), np.zeros(n_dates)
+        aqconc_avg1, aqconc_avg2 = np.zeros(n_dates), np.zeros(n_dates)
+
+    else:
+        daily_depth = aqconc_avg1 = aqconc_avg2 = aq_conc1 = None
 
     # Reset starting values
     conc = mn1 = mn2 = 0
 
     for d in range(daily_concentration.size):
+
+        # Compute concentration
         conc += daily_concentration[d]
         avgconc_adj[d] = conc / k_adj[d] * (1 - exp_k[d])
         conc *= exp_k[d]
 
-        # MMF  Addition of Benthic region, assume VVWM benthic properties
-        m1 = mn1 + m1_input[d]  # daily peak mass
-        m2 = mn2 + m2_input[d]
+        if process_benthic:
 
-        # JCH - What are these variables for?  They aren't doing anything right now
-        m1_store = m1
-        m2_store = m2
+            # MMF  Addition of Benthic region, assume VVWM benthic properties
+            m1 = mn1 + m1_input[d]  # daily peak mass
+            m2 = mn2 + m2_input[d]
 
-        # MMF Convert to aqueous concentration
-        aq_conc1[d] = m1 * fw1[d] / daily_depth[d] / area_wb
-        aq_conc2[d] = m2 * fw2 / (benthic.depth * area_wb * benthic.porosity)
+            # JCH - What are these variables for?  They aren't doing anything right now
+            m1_store = m1
+            m2_store = m2
 
-        new_aqconc1, new_aqconc2, aqconc_avg1[d], aqconc_avg2[d] = \
-            simultaneous_diffeq(k_adj[d], degradation_aqueous, omega, theta, aq_conc1[d], aq_conc2[d])
+            # MMF Convert to aqueous concentration
+            aq_conc1[d] = m1 * fw1[d] / daily_depth[d] / area_wb
+            aq_conc2[d] = m2 * fw2 / (benthic.depth * area_wb * benthic.porosity)
 
-        # Convert back to masses
-        mn1 = new_aqconc1 / fw1[d] * daily_depth[d] * area_wb
-        mn2 = new_aqconc2 / fw2 * benthic.depth * area_wb * benthic.porosity
+            new_aqconc1, new_aqconc2, aqconc_avg1[d], aqconc_avg2[d] = \
+                simultaneous_diffeq(k_adj[d], degradation_aqueous, omega, theta, aq_conc1[d], aq_conc2[d])
 
-        # JCH - This is also not currently being used.
-        mavg1_store = aqconc_avg1[d] / fw1[d] * daily_depth[d] * area_wb
+            # Convert back to masses
+            mn1 = new_aqconc1 / fw1[d] * daily_depth[d] * area_wb
+            mn2 = new_aqconc2 / fw2 * benthic.depth * area_wb * benthic.porosity
+
+            # JCH - This is also not currently being used.
+            mavg1_store = aqconc_avg1[d] / fw1[d] * daily_depth[d] * area_wb
 
     # Adjust for change in units
     runoff_conc = np.nan_to_num((runoff_mass * 1000000.) / total_runoff)

@@ -42,6 +42,8 @@ def hydro(hydro_path, reach, years, start_count):
     """
     Read hydro file, which contains modeled runoff and erosion time series
     """
+    # JCH - This may need to be modified to read hydro files with erosion
+    #       Flexibility for erosion on/off?
     hydro_file = hydro_path.format(reach)
     if os.path.isfile(hydro_file):
         with open(hydro_file) as f:
