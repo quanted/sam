@@ -35,7 +35,7 @@ class FilePath(object):
     def format(self, *args):
         return(self.full_path.format(*args))
 
-def flows(flow_file, dates, id_field="COMID"):
+def flows(flow_file, dates, process_benthic=False, id_field="COMID"):
     # Read the NHD flow files to get q, v, xc
     months = np.array(list(map(lambda x: int(x.month) - 1, dates)), dtype=np.int16)
     with open(flow_file) as f:
@@ -45,10 +45,17 @@ def flows(flow_file, dates, id_field="COMID"):
             q, v, xc = \
                 (np.array([float(row[var + "_" + str(m).zfill(2)]) for m in list(range(1, 13)) + ['MA']])[months]
                  for var in ("Q", "V", "XC"))
-            yield recipe_id, q, v, xc
+            if process_benthic:
+                area_wb = None  # JCH - placeholder
+                depth = None    # JCH - placeholder
+            else:
+                area_wb = depth = None
+            yield recipe_id, q, v, xc, area_wb, depth
 
 
-def hydro(hydro_path, reach, years, start_count):
+
+
+def hydro(hydro_path, reach, years, start_count, process_erosion=True):
     """
     Read hydro file, which contains modeled runoff and erosion time series
     """
@@ -66,23 +73,23 @@ def hydro(hydro_path, reach, years, start_count):
                     line_values = map(str.strip, line.split())  # clean formatting marks, space delimited
                     for year, value in zip(years, line_values):
                         total_runoff[year][i - start_count] = float(value)
-                        total_erosion[year][i - start_count] = float(value) # MMF Need to read in 4 additional columns here for erosion2010-2013, but not sure coding within current loop works?
+                        if process_erosion:
+                            # MMF Need to read in 4 additional columns here for erosion 2010-2013, but not sure coding within current loop works?
+                            total_erosion[year][i - start_count] = float(value)
         return total_runoff, total_erosion  # MMF can we return total_erosion also here, with same return statement?
     else:
         sys.exit("Hydro file {} not found".format(hydro_file))
 
 
-def scenario(path, start_count):
+def scenario(path, input, process_erosion=True):
 
     input_variables = ["covmax",            # Maximum coverage
                        "num_records",       # Number of records
-                       "numberOfYears",     # Number of years
+                       "num_years",         # Number of years
                        "count_runoff",      # Number of runoff days
                        "date_runoff",       # Dates of runoff days
                        "raw_runoff",        # Runoff sequence
-                       "date_erosion",      # Dates of erosion days
-                       "raw_erosion",       # Erosion sequence
-                       "soil_water_m_all",  # Soil water
+                       "soil_water",        # Soil water
                        "count_velocity",    # Number of leaching days
                        "date_velocity",     # Dates of leaching days
                        "raw_leaching",      # Leaching sequence
@@ -91,11 +98,13 @@ def scenario(path, start_count):
                        "rain",              # Daily Rainfall
                        "plant_factor"       # Daily Plant factor
                        ]
-    
+
+    if process_erosion:
+        input_variables[6:6] = ["date_erosion",      # Dates of erosion days
+                                "raw_erosion"        # Erosion sequence
+                                ]
 
     file_contents = path.unpickle
-    print(len(file_contents))
-    print(file_contents, len(input_variables))
     if len(file_contents) == len(input_variables):
         p = dict(zip(input_variables, file_contents))
     else:
@@ -107,19 +116,22 @@ def scenario(path, start_count):
     s.runoff = np.zeros_like(s.rain)
     s.runoff[np.int32(s.date_runoff) - 2] = s.raw_runoff
 
-    s.erosion = np.zeros_like(s.rain)
-    s.erosion[np.int32(s.date_erosion) - 2] = s.raw_erosion
+    if process_erosion:
+        s.erosion = np.zeros_like(s.rain)
+        s.erosion[np.int32(s.date_erosion) - 2] = s.raw_erosion
 
     s.leaching = np.zeros_like(s.rain)
     s.leaching[np.int32(s.date_velocity) - 2] = s.raw_leaching
 
     # Add kd
-    s.kd = s.koc * s.org_carbon if s.kflag else s.koc
-    
+    s.kd = input.koc * s.org_carbon if input.kflag else s.koc
+
     # Trim to start_count
-    s.soil_water_m_all = np.hstack((s.soil_water_m_all[start_count + 1:], [0.0]))  # @@@ - why does this need to be offset
-    s.plant_factor, s.rain, s.runoff, s.erosion, s.leaching = \
-        (array[start_count:] for array in (s.plant_factor, s.rain, s.runoff, s.erosion, s.leaching))
+    s.soil_water = np.hstack((s.soil_water[input.start_count + 1:], [0.0]))  # @@@ - why does this need to be offset
+    s.plant_factor, s.rain, s.runoff, s.leaching = \
+        (array[input.start_count:] for array in (s.plant_factor, s.rain, s.runoff, s.leaching))
+    if process_erosion:
+        s.erosion = s.erosion[input.start_count:]
 
     return s
 
@@ -196,6 +208,7 @@ def input_file(input_file):
         i.appmass = np.append(np.full(i.napps, i.appmass_init), np.zeros((i.start_count + i.ndates) -i.napps))
 
         i.start_count -= 1  # Adjustment for zero based numbering in Python
+
 
         # Dates
         i.dates = \

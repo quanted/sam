@@ -31,8 +31,8 @@ def applications(input, scenario):
     app = input.applications  # Shortcut to application timing details
 
     # Create local copies of application data arrays
-    appmass = np.copy(input.appmass_global)
-    appnumrec = np.copy(input.appnumrec_global)
+    appmass = np.copy(input.appmass)
+    appnumrec = np.copy(input.appnumrec)
 
     # Initialize variables
     appmass_init = appmass[0]
@@ -41,7 +41,7 @@ def applications(input, scenario):
     for date in application_dates():
 
         if input.distribflag == 1:  # uniform application
-            appmass[appcount:appcount + app.twindow1] = appmass_init / input.app.twindow1
+            appmass[appcount:appcount + app.twindow1] = appmass_init / app.twindow1
 
         elif input.distribflag == 2:  # step application
             appmass[appcount:appcount + app.twindow1] = (app.pct1 / 100 * appmass_init) / app.twindow1
@@ -68,7 +68,7 @@ def applications(input, scenario):
     canopy_to_soil = applied_to_canopy - retained_by_canopy
     canopy_to_soil_days = np.where(canopy_to_soil + scenario.rain > 0)[0]
 
-    pesticide_mass_soil = (applied_to_soil + canopy_to_soil) * soil.soil_2cm
+    pesticide_mass_soil = (applied_to_soil + canopy_to_soil) * soil.distrib_2cm
     degradation = np.exp(-days_since(scenario.rain + canopy_to_soil) * plant.foliar_degradation)
     washoff = np.exp(-scenario.rain * plant.washoff_coeff)
 
@@ -81,7 +81,7 @@ def applications(input, scenario):
     return pesticide_mass_soil
 
 
-def transport(pesticide_mass_soil, scenario):
+def transport(pesticide_mass_soil, scenario, input, process_erosion):
     """
     Simulate transport of pesticide through runoff and erosion
     """
@@ -95,17 +95,18 @@ def transport(pesticide_mass_soil, scenario):
     leach_dates = np.where(scenario.leaching > 0.0)[0]
 
     # Erosion efficiency and enrichment
-    enrich = math.exp(2.0 - (0.2 * math.log10(scenario.erosion)))
-    erosion_intensity = soil.erosion_effic / soil.soil_depth  # Assume uniform extraction, no decline, MMF
-    enriched_eroded_mass = (scenario.erosion / 100000.) * enrich  # kg/ha -> g/cm2 (kg/ha*(ha/10000 m2)(1000 g/kg)(m2/10000 cm2) = 1/100000
-    scenario.erosion = enriched_eroded_mass * scenario.kd * erosion_intensity * 10000.  # g/cm2 *(m3/g)*10000cm2/m2 -> [m]  !Enrich based on PRZM, kd: kd sediment may differ from kd erosion
+    if process_erosion:
+        enrich = math.exp(2.0 - (0.2 * math.log10(scenario.erosion)))
+        erosion_intensity = soil.erosion_effic / soil.soil_depth  # Assume uniform extraction, no decline, MMF
+        enriched_eroded_mass = (scenario.erosion / 100000.) * enrich  # kg/ha -> g/cm2 (kg/ha*(ha/10000 m2)(1000 g/kg)(m2/10000 cm2) = 1/100000
+        scenario.erosion = enriched_eroded_mass * scenario.kd * erosion_intensity * 10000.  # g/cm2 *(m3/g)*10000cm2/m2 -> [m]  !Enrich based on PRZM, kd: kd sediment may differ from kd erosion
 
     # Get retardation and deg_total
     retardation = (scenario.soil_water / soil.delta_x) + (scenario.bulk_density * scenario.kd)
-    deg_total = scenario.degradation_aqueous + ((scenario.runoff + scenario.leaching) / (soil.delta_x * retardation))
+    deg_total = input.degradation_aqueous + ((scenario.runoff + scenario.leaching) / (soil.delta_x * retardation))
 
     # Get degradation rate for each day
-    degradation_rate = np.full(pesticide_mass_soil.size, np.exp(-scenario.degradation_aqueous))  # Non-leaching days
+    degradation_rate = np.full(pesticide_mass_soil.size, np.exp(-input.degradation_aqueous))  # Non-leaching days
     degradation_rate[leach_dates] = np.exp(-deg_total[leach_dates])  # Leaching days
 
     # Get total mass by accumulating pesticide_mass_soil and degrading by degradation rate
@@ -118,13 +119,18 @@ def transport(pesticide_mass_soil, scenario):
             leach_dates]  # conc[kg/m3]*[m] = kg/m2
 
     # Compute the mass of pesticide from erosion
-    erosion_mass = np.zeros_like(scenario.erosion)
-    erosion_mass[leach_dates] = \
-        (((total_mass / retardation / soil.delta_x) / deg_total) * (1 - degradation_rate) * scenario.erosion)[
-            leach_dates]  # conc[kg/m3]*[m] = kg/m2
+    if process_erosion:
+        erosion_mass = np.zeros_like(scenario.erosion)
+        erosion_mass[leach_dates] = \
+            (((total_mass / retardation / soil.delta_x) / deg_total) * (1 - degradation_rate) * scenario.erosion)[
+                leach_dates]  # conc[kg/m3]*[m] = kg/m2
 
     # Offset by one day (JCH - Not sure why I have to offset by a day here, but it works)
-    runoff_mass, erosion_mass = (np.hstack([0.0, seq[:-1]]) for seq in (runoff_mass, erosion_mass))
+    runoff_mass = np.hstack([0.0, runoff_mass[:-1]])
+    if process_erosion:
+        erosion_mass = np.hstack([0.0, erosion_mass[:-1]])
+    else:
+        erosion_mass = None
 
     return runoff_mass, erosion_mass
 
@@ -282,7 +288,7 @@ def waterbody_concentration(q, xc, total_runoff, runoff_mass, erosion_mass,
         aqconc_avg1, aqconc_avg2 = np.zeros(n_dates), np.zeros(n_dates)
 
     else:
-        daily_depth = aqconc_avg1 = aqconc_avg2 = aq_conc1 = None
+        daily_depth = aqconc_avg1 = aqconc_avg2 = aq_conc1 = np.array([])
 
     # Reset starting values
     conc = mn1 = mn2 = 0

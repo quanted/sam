@@ -51,6 +51,7 @@ class Comparison(object):
             for i in range(3):
                 line = f.readline()
             header = list(map(str.strip, line.split(",")))
+            header = [h if h != "baseflow(m3)" else "Baseflow(m3)" for h in header]
             for line in f:
                 line = line.replace("NaN", "0.0").strip()
                 values = map(float, line.split())
@@ -126,7 +127,7 @@ def compare_fortran_py(fortran_output_dir, python_output_dir, python_format, for
 
 
 def main():
-    pct_tolerance = 0.01
+    pct_tolerance = 0.1
     raw_tolerance = 0.0001
     fortran_output_dir = r"T:\SAM\Outputs\Fortran"
     python_output_dir = r"T:\SAM\Outputs\Python"

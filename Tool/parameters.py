@@ -1,7 +1,7 @@
 from read import ParameterSet
 
 # Parameters related directly to pesticide degradation
-plant = {
+plant_params = {
     "foliar_degradation": 0.0,  # per day
     "washoff_coeff": 0.1,	    # Washoff coefficient
 }
@@ -9,7 +9,7 @@ plant = {
 # Parameters related to soils in the field
 soil_params = {
     "delta_x": 0.02,			# Surface depth (m)
-    "soil_distrib_2cm": 0.75,   # Soil distribution, top 2 cm. Revised for 1 compartment - uniform extraction
+    "distrib_2cm": 0.75,   # Soil distribution, top 2 cm. Revised for 1 compartment - uniform extraction
     "runoff_effic": 0.266,      # Runoff efficiency
     "prben": 0.5,               # PRBEN factor - default PRZM5, MMF
     "erosion_effic": 0.266,     # Erosion efficiency - subject to change, MMF
@@ -40,7 +40,7 @@ benthic_params = {
     "d_over_dx": 1      # mass transfer coefficient for exchange between benthic and water column (m/s)
 }
 
-pesticide = ParameterSet(**plant)
+plant = ParameterSet(**plant_params)
 soil = ParameterSet(**soil_params)
 water_column = ParameterSet(**water_column_params)
 benthic = ParameterSet(**benthic_params)
