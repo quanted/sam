@@ -7,12 +7,10 @@ from collections import defaultdict, OrderedDict
 import re
 import pickle
 
-from parameters import ParameterSet
-
 class ParameterSet(object):
     def __init__(self, **kwargs):
-        for variable, value in kwargs.iteritems():
-            setattr(self, variable)
+        for variable, value in kwargs.items():
+            setattr(self, variable, value)
 
 
 class FilePath(object):
@@ -24,6 +22,18 @@ class FilePath(object):
 
     def __repr__(self):
         return self.full_path
+
+    @property
+    def exists(self):
+        return os.path.exists(self.full_path)
+
+    @property
+    def unpickle(self):
+        with open(self.full_path, 'rb') as f:
+            return pickle.load(f)
+
+    def format(self, *args):
+        return(self.full_path.format(*args))
 
 def flows(flow_file, dates, id_field="COMID"):
     # Read the NHD flow files to get q, v, xc
@@ -80,12 +90,14 @@ def scenario(path, start_count):
                        "plant_factor"       # Daily Plant factor
                        ]
     
-    with open(path, 'rb') as f:
-        file_contents = pickle.load(f)
-        if len(file_contents) == len(input_variables):
-            p = dict(zip(input_variables, file_contents))
-        else:
-            sys.exit("Unable to match scenario file contents with SAM variables. Check read.scenario and scenario file")
+
+    file_contents = path.unpickle
+    print(len(file_contents))
+    print(file_contents, len(input_variables))
+    if len(file_contents) == len(input_variables):
+        p = dict(zip(input_variables, file_contents))
+    else:
+        sys.exit("Unable to match scenario file contents with SAM variables. Check read.scenario and scenario file")
 
     s = ParameterSet(**p)
 
@@ -177,7 +189,7 @@ def input_file(input_file):
 
         # Initialize arrays
         i.appnumrec = \
-            np.int64(np.append(np.full(i.napps, i.appnumrec_init, np.zeros((i.start_count + i.ndates) -i.napps))))
+            np.int64(np.append(np.full(i.napps, i.appnumrec_init), np.zeros((i.start_count + i.ndates) -i.napps)))
 
         i.appmass = np.append(np.full(i.napps, i.appmass_init), np.zeros((i.start_count + i.ndates) -i.napps))
 
@@ -185,7 +197,7 @@ def input_file(input_file):
 
         # Dates
         i.dates = \
-            [datetime.date(p.firstyear, p.firstmon, p.firstday) + datetime.timedelta(days=i) for i in range(p.ndates)]
+            [datetime.date(i.firstyear, i.firstmon, i.firstday) + datetime.timedelta(days=d) for d in range(i.ndates)]
 
         i.applications =  ParameterSet(**{"twindow1":i.twindow1, "twindow2":i.twindow2, "pct1":i.pct1, "pct2":i.pct2})
 
@@ -220,14 +232,14 @@ def recipes(recipe_path, input_years, scenario_dir, crops_desired):
     with the structure: {Recipe ID: {Year: [(Scenario Path, Area),],},}
     """
     recipe_dict = defaultdict(lambda: OrderedDict.fromkeys(sorted(input_years)))  # Initialize the recipe dictionary
-    recipe_dir, recipe_format = os.path.split(recipe_path)
-    for recipe_file in os.listdir(recipe_dir):  # Loop through all files in recipe directory
-        match = re.match(recipe_format, recipe_file)  # Check to see if the file is a recognized recipe
+
+    for recipe_file in os.listdir(recipe_path.dir):  # Loop through all files in recipe directory
+        match = re.match(recipe_path.base, recipe_file)  # Check to see if the file is a recognized recipe
         if match:
             recipe_id, year = match.groups()  # If it is a recipe, extract recipe id and year from filename
             year = int(year)
             if year in input_years:  # Filter out years that are not in input years
-                recipe_file = os.path.join(recipe_dir, recipe_file)
+                recipe_file = os.path.join(recipe_path.dir, recipe_file)
                 missing_scenarios = []
                 scenarios = []
                 with open(recipe_file) as f:  # Open recipe file for reading
@@ -236,8 +248,8 @@ def recipes(recipe_path, input_years, scenario_dir, crops_desired):
                         scenario_id, area = row.split(",")  # Get scenario id and area from row
                         crop = int(scenario_id.split("cdl")[1])  # Get crop number from scenario id
                         if crop in crops_desired:  # Proceed if crop number is one of the specified crops
-                            scenario_file = os.path.join(scenario_dir, scenario_id)
-                            if os.path.isfile(scenario_file):  # Add scenario to recipe if the file exists
+                            scenario_file = FilePath(scenario_dir, scenario_id)
+                            if scenario_file.exists:  # Add scenario to recipe if the file exists
                                 scenarios.append((scenario_file, int(area)))
                             else:  # If it doesn't exist, make a note of it
                                 missing_scenarios.append(scenario_file)

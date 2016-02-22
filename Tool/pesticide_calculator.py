@@ -69,9 +69,9 @@ def main():
     hydro_format = "{}_hydro.txt"
     output_format = "Eco_{}_{}_daily.out"
 
-    recipe_path = os.path.join(recipe_dir, recipe_format)
-    hydro_path = os.path.join(hydro_dir, hydro_format)
-    output_path = os.path.join(output_dir, output_format)
+    recipe_path = read.FilePath(recipe_dir, recipe_format)
+    hydro_path = read.FilePath(hydro_dir, hydro_format)
+    output_path = read.FilePath(output_dir, output_format)
 
     input_years = [2010, 2011, 2012, 2013]
 
