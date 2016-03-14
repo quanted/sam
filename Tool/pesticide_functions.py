@@ -135,21 +135,24 @@ def transport(pesticide_mass_soil, scenario, input, process_erosion):
     return runoff_mass, erosion_mass
 
 
-def waterbody_concentration(q, xc, total_runoff, runoff_mass, erosion_mass,
-                            process_benthic=True, area_wb=None, daily_depth=None, degradation_aqueous=None, koc=None):  # MMF - we need area_wb, daily_depth, depth_0 for benthic calcs to work
+def waterbody_concentration(q, v, length, total_runoff, runoff_mass, erosion_mass,
+                            process_benthic=True, degradation_aqueous=None, koc=None):  # MMF - we need area_wb, daily_depth, depth_0 for benthic calcs to work
 
     def solute_holding_capacity():
         '''
         Calculates Solute Holding capacities and mass transfer between water column and benthic regions
         '''
-        area_wb = 40. * 40.  # MMF-placeholder (m2)
-        daily_depth = xc / 40.  # MMF-placeholder, daily depth in water (m)...eventually make dimensions[d]
-        depth_0 = 10.  # MMF-placeholder, initial water body depth (m)
+
+        from Tool.parameters import stream_channel
+
+        width = stream_channel.a * np.power(xc, stream_channel.b)
+        depth = (xc - width) / 2.0
+        surface_area = width * length
 
         # Aqueous volumes in each region
-        vol1 = daily_depth * area_wb  # total volume in water column, approximately equal to water volume alone
-        vol2a = benthic.depth * area_wb  # total benthic volume
-        vol2 = vol2a * benthic.porosity  # with EXAMS parameters   v2  = VOL2*BULKD*(1.-100./PCTWA)
+        vol1 = daily_depth * sa  # total volume in water column, approximately equal to water volume alone
+        vol2a = benthic.depth * sa  # total benthic volume
+        vol2 = vol2a * benthic.porosity  # with EXAMS Tool.parameters   v2  = VOL2*BULKD*(1.-100./PCTWA)
 
         # Default EXAMS conditions for partitioning
         kow = koc / .35  # DEFAULT EXAMS CONDITION ON Kow  p.35
@@ -158,7 +161,7 @@ def waterbody_concentration(q, xc, total_runoff, runoff_mass, erosion_mass,
         xkpb = 0.436 * kow ** .907  # DEFAULT RELATION IN EXAMS
 
         # mass in littoral region
-        vol1a = depth_0 * area_wb  # initial volume corresponding with susspended matter reference
+        vol1a = depth_0 * area_wb  # initial volume corresponding with suspended matter reference
         m_sed_1 = wc.sused * vol1a * .001  # SEDIMENT MASS LITTORAL
         m_bio_1 = wc.plmas * vol1a * .001  # BIOLOGICAL MASS LITTORAL
         m_doc_1 = wc.doc * vol1a * .001  # DOC MASS LITTORAL
@@ -171,8 +174,8 @@ def waterbody_concentration(q, xc, total_runoff, runoff_mass, erosion_mass,
         kd_doc_2 = kpdoc2 / 1000.  # Kd of DOC in benthic region
 
         # mass in benthic region
-        m_sed_2 = benthic.bulk_density * vol2a * 1000.  # as defined by EXAMS parameters m_sed_2 = BULKD/PCTWA*VOL2*100000.
-        m_bio_2 = benthic.bnmas * area_wb * .001
+        m_sed_2 = benthic.bulk_density * vol2a * 1000.  # as defined by EXAMS Tool.parameters m_sed_2 = BULKD/PCTWA*VOL2*100000.
+        m_bio_2 = benthic.bnmas * sa * .001
         m_doc_2 = benthic.doc * vol2 * .001
 
         # solute holding capacity in region 1
@@ -262,9 +265,11 @@ def waterbody_concentration(q, xc, total_runoff, runoff_mass, erosion_mass,
     # Develop hydrograph
     baseflow = np.ones_like(total_runoff) * 1.e-6  # 1.e-6 is minimum baseflow
     average_runoff = np.average(total_runoff)  # m3/d
-    volume = (xc * 40.)
     baseflow[q >= average_runoff] = q[q >= average_runoff] - average_runoff
     total_flow = baseflow + total_runoff
+    total_flow[v == 0] = 0.0  # JCH - We'll need to revisit this
+    xc = total_flow / v
+    volume = xc * 40.
 
     # Compute daily concentration from runoff
     conc_days = ((runoff_mass > 0.0) & (volume > 0.0))
@@ -278,7 +283,7 @@ def waterbody_concentration(q, xc, total_runoff, runoff_mass, erosion_mass,
     if process_benthic:
 
         # Compute benthic solute holding capacity
-        capacity1, capacity2, fw1, fw2, theta, sed_conv_factor, omega = solute_holding_capacity()
+        fw1, fw2, theta, sed_conv_factor, omega = solute_holding_capacity()
 
         m1_input = runoff_mass + (1. - soil.prben) * erosion_mass
         m2_input = soil.prben * erosion_mass
@@ -288,7 +293,7 @@ def waterbody_concentration(q, xc, total_runoff, runoff_mass, erosion_mass,
         aqconc_avg1, aqconc_avg2 = np.zeros(n_dates), np.zeros(n_dates)
 
     else:
-        daily_depth = aqconc_avg1 = aqconc_avg2 = aq_conc1 = np.array([])
+        aqconc_avg1 = aqconc_avg2 = aq_conc1 = np.array([])
 
     # Reset starting values
     conc = mn1 = mn2 = 0
@@ -311,21 +316,23 @@ def waterbody_concentration(q, xc, total_runoff, runoff_mass, erosion_mass,
             m2_store = m2
 
             # MMF Convert to aqueous concentration
-            aq_conc1[d] = m1 * fw1[d] / daily_depth[d] / area_wb
-            aq_conc2[d] = m2 * fw2 / (benthic.depth * area_wb * benthic.porosity)
+            aq_conc1[d] = m1 * fw1[d] / daily_depth[d] / sa
+            aq_conc2[d] = m2 * fw2 / (benthic.depth * sa * benthic.porosity)
 
             new_aqconc1, new_aqconc2, aqconc_avg1[d], aqconc_avg2[d] = \
                 simultaneous_diffeq(k_adj[d], degradation_aqueous, omega, theta, aq_conc1[d], aq_conc2[d])
 
             # Convert back to masses
-            mn1 = new_aqconc1 / fw1[d] * daily_depth[d] * area_wb
-            mn2 = new_aqconc2 / fw2 * benthic.depth * area_wb * benthic.porosity
+            mn1 = new_aqconc1 / fw1[d] * daily_depth[d] * sa
+            mn2 = new_aqconc2 / fw2 * benthic.depth * sa * benthic.porosity
 
             # JCH - This is also not currently being used.
-            mavg1_store = aqconc_avg1[d] / fw1[d] * daily_depth[d] * area_wb
+            mavg1_store = aqconc_avg1[d] / fw1[d] * daily_depth[d] * sa
 
     # Adjust for change in units
-    runoff_conc = np.nan_to_num((runoff_mass * 1000000.) / total_runoff)
+    with np.errstate(divide='ignore'):
+        runoff_conc = (runoff_mass * 1000000.) / total_runoff
+        runoff_conc[np.isnan(runoff_conc)] = 0.0
     avgconc_adj *= 1000000.
 
-    return total_flow, baseflow, avgconc_adj, runoff_conc, daily_depth, aqconc_avg1, aqconc_avg2, aq_conc1
+    return total_flow, baseflow, avgconc_adj, runoff_conc, aqconc_avg1, aqconc_avg2, aq_conc1

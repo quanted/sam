@@ -35,37 +35,32 @@ class FilePath(object):
     def format(self, *args):
         return(self.full_path.format(*args))
 
-def flows(flow_file, dates, process_benthic=False, id_field="COMID"):
+
+def flows(flow_file, dates, id_field="COMID", filter=None):
+
     # Read the NHD flow files to get q, v, xc
     months = np.array(list(map(lambda x: int(x.month) - 1, dates)), dtype=np.int16)
     with open(flow_file) as f:
         reader = csv.DictReader(f)
         for row in reader:
             recipe_id = row[id_field]
-            q, v, xc = \
-                (np.array([float(row[var + "_" + str(m).zfill(2)]) for m in list(range(1, 13)) + ['MA']])[months]
-                 for var in ("Q", "V", "XC"))
-            if process_benthic:
-                area_wb = None  # JCH - placeholder
-                depth = None    # JCH - placeholder
-            else:
-                area_wb = depth = None
-            yield recipe_id, q, v, xc, area_wb, depth
-
-
+            if filter and recipe_id in filter:
+                q, v = \
+                    (np.array([float(row[var + "_" + str(m).zfill(2)]) for m in list(range(1, 13)) + ['MA']])[months]
+                     for var in ("Q", "V"))
+                length = row['Length']
+                yield recipe_id, q, v, length
 
 
 def hydro(hydro_path, reach, years, start_count, process_erosion=True):
     """
     Read hydro file, which contains modeled runoff and erosion time series
     """
-    # JCH - This may need to be modified to read hydro files with erosion
-    #       Flexibility for erosion on/off?
     hydro_file = hydro_path.format(reach)
     if os.path.isfile(hydro_file):
         with open(hydro_file) as f:
             num_records = int(float(f.readline().split()[0]))  # MMF-guess we aren't saving out total areas by year here
-            #MMF with erosion, hydro files will now include 4 additional columns for erosion 2010-2014
+                                                               # MMF with erosion, hydro files will now include 4 additional columns for erosion 2010-2014
             total_runoff = {year: np.zeros(num_records - start_count) for year in years}
             total_erosion = {year: np.zeros(num_records - start_count) for year in years}
             for i, line in enumerate(f):
@@ -192,29 +187,23 @@ def input_file(input_file):
         i.degradation_aqueous = 0.693 / i.soil_halflife	 #aqueous, per day
         i.koc /= 1000.0  # Now in m3/kg
 
-        """
-        JCH: This doesn't work here because this routine (reading the input file) takes place before reading the
-        scenario.  The assignment of koc based on org_carbon takes place in the function read.scenario, and koc is
-        assigned to the scenario parameter set, not input
-        if i.kflag == 2:
-            i.koc = i.koc * scenario.org_carbon  #MMF
-            kd = i.koc
-        """
-
         # Initialize arrays
-        i.appnumrec = \
-            np.int64(np.append(np.full(i.napps, i.appnumrec_init), np.zeros((i.start_count + i.ndates) -i.napps)))
 
-        i.appmass = np.append(np.full(i.napps, i.appmass_init), np.zeros((i.start_count + i.ndates) -i.napps))
+        i.appnumrec = \
+            np.int64(np.append(np.full(i.napps, i.appnumrec_init), np.zeros((i.start_count + i.ndates) - i.napps)))
+
+        i.appmass = np.append(np.full(i.napps, i.appmass_init), np.zeros((i.start_count + i.ndates) - i.napps))
 
         i.start_count -= 1  # Adjustment for zero based numbering in Python
-
 
         # Dates
         i.dates = \
             [datetime.date(i.firstyear, i.firstmon, i.firstday) + datetime.timedelta(days=d) for d in range(i.ndates)]
 
-        i.applications =  ParameterSet(**{"twindow1":i.twindow1, "twindow2":i.twindow2, "pct1":i.pct1, "pct2":i.pct2})
+        i.applications =  ParameterSet(**{"twindow1":i.twindow1, "twindow2":i.twindow2,
+                                          "pct1":i.pct1, "pct2":i.pct2,
+                                          "init_app": i.appnumrec_init, "init_mass": i.appmass_init})
+
 
         return i
 

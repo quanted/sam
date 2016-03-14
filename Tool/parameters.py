@@ -40,7 +40,15 @@ benthic_params = {
     "d_over_dx": 1      # mass transfer coefficient for exchange between benthic and water column (m/s)
 }
 
+# Stream channel geometry
+stream_channel_params = {
+    "a": 4.28,
+    "b": 0.55
+}
+
 plant = ParameterSet(**plant_params)
 soil = ParameterSet(**soil_params)
 water_column = ParameterSet(**water_column_params)
 benthic = ParameterSet(**benthic_params)
+stream_channel = ParameterSet(**stream_channel_params)
+
