@@ -142,7 +142,7 @@ def impulse_response_function(alpha, beta, length):
 
 def preconvolution_report(reach, dates, output_file, upstream_output, baseflow):
 
-    import write
+    from Tool import write
 
     # Create output directory
     output_file = output_file.replace("Convolved", "Aggregated")

@@ -7,7 +7,7 @@ def applications(input, scenario):
     Creates a time-series array of pesticide applications and transfers those to the soil
     """
 
-    from parameters import soil, plant
+    from Tool.parameters import soil, plant
 
     def application_dates():
         # Predicts the dates of pesticide application based on crop stage
@@ -85,7 +85,7 @@ def transport(pesticide_mass_soil, scenario, input, process_erosion):
     """
     Simulate transport of pesticide through runoff and erosion
     """
-    from parameters import soil
+    from Tool.parameters import soil
 
     # Returns an array in which a value from 'a' is added and 'b' is multiplied on each iteration
     def cumulative_multiply_and_add(a, b):
@@ -253,9 +253,9 @@ def waterbody_concentration(q, xc, total_runoff, runoff_mass, erosion_mass,
 
         return mn1, mn2, mavg1, mavg2
 
-    from parameters import benthic
-    from parameters import soil
-    from parameters import water_column as wc
+    from Tool.parameters import benthic
+    from Tool.parameters import soil
+    from Tool.parameters import water_column as wc
 
     n_dates = total_runoff.size
 

@@ -1,8 +1,7 @@
 import numpy as np
-
-import read
-import pesticide_functions as functions
-import write
+from Tool import read
+from Tool import pesticide_functions as functions
+from Tool import write
 
 
 def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro_path, output_file, input_years,

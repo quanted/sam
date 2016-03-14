@@ -1,8 +1,8 @@
 import os
 
-import travel_time_functions as functions
-import read
-import write
+from Tool import travel_time_functions as functions
+from Tool import read
+from Tool import write
 
 # @@@ - to do:
 # class for indexed array?  class for input file with dir and format?  OR structured arrays?
