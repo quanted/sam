@@ -19,8 +19,25 @@ class SamInputs(ModelSharedInputs):
     def __init__(self):
         """Class representing the inputs for Sam"""
         super(SamInputs, self).__init__()
+        self.scenario_selection = pd.Series([], dtype="object")
+        self.chemical_name = pd.Series([], dtype="object")
+        self.koc = pd.Series([], dtype="float")
+        self.coefficient = pd.Series([], dtype="float")
+        self.soil_metabolism_hl = pd.Series([], dtype="float")
+        self.crop = pd.Series([], dtype="object")
+        self.crop_number = pd.Series([], dtype="float")
+        self.apps_per_year = pd.Series([], dtype="float")
+        self.application_method = pd.Series([], dtype="object")
         self.application_rate = pd.Series([], dtype="float")
-
+        self.refine = pd.Series([], dtype="object")
+        self.refine_time_window1 = pd.Series([], dtype="float")
+        self.refine_percent_applied1 = pd.Series([], dtype="float")
+        self.refine_time_window2 = pd.Series([], dtype="float")
+        self.refine_percent_applied2 = pd.Series([], dtype="float")
+        self.region = pd.Series([], dtype="object")
+        self.sim_type = pd.Series([], dtype="object")
+        self.sim_date_start = pd.Series([], dtype="object")
+        self.sim_date_end = pd.Series([], dtype="object")
 
 
 class SamOutputs(object):
@@ -31,7 +48,15 @@ class SamOutputs(object):
     def __init__(self):
         """Class representing the outputs for Sam"""
         super(SamOutputs, self).__init__()
-        self.out_sat_air_conc = pd.Series(name="out_sat_air_conc")
+        self.output_type = pd.Series(name="output_type")
+        self.output_avg_days = pd.Series(name="output_avg_days")
+        self.output_time_avg_option = pd.Series(name="output_time_avg_option")
+        self.output_time_avg_conc = pd.Series(name="output_time_avg_conc")
+        self.output_tox_value = pd.Series(name="output_tox_value")
+        self.output_tox_thres_exceed = pd.Series(name="output_tox_thres_exceed")
+        self.output_format = pd.Series(name="output_format")
+        self.workers = pd.Series(name="workers")
+        self.processes = pd.Series(name="processes")
 
 
 class Sam(UberModel, SamInputs, SamOutputs):
