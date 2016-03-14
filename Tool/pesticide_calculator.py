@@ -55,14 +55,14 @@ def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro
                         total_erosion_mass += erosion_mass * area
 
                 # Compute concentration in water
-                total_flow, baseflow, total_conc, runoff_conc, aqconc_avg1, aqconc_avg2, aq1_store = \
+                total_flow, baseflow, avgconc_adj, runoff_conc, aqconc_avg1, aqconc_avg2, aq_conc1 = \
                     functions.waterbody_concentration(q, v, l, total_runoff, total_runoff_mass, total_erosion_mass,
                                                       process_benthic, input.degradation_aqueous, input.koc)
 
                 # Write daily output
                 if write_daily_files:
                     write.daily(output_file, recipe_id, year, input.dates, total_flow, baseflow, total_runoff,
-                                total_conc, runoff_conc, total_runoff_mass, aqconc_avg1, aqconc_avg2, aq1_store)
+                                avgconc_adj, runoff_conc, total_runoff_mass, aqconc_avg1, aqconc_avg2)
 
 
 def main():
