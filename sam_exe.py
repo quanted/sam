@@ -86,7 +86,8 @@ class Sam(UberModel, SamInputs, SamOutputs):
 
     def run_methods(self):
         """ Execute all algorithm methods for model logic """
+        from Tool import pesticide_calculator
         try:
-            Tool.pesticide_calculator.main()
+            pesticide_calculator.main()
         except Exception as e:
             print(e)
