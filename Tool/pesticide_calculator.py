@@ -85,7 +85,7 @@ def main():
     process_benthic = False
     process_erosion = False
 
-    write_daily_files = False  # JCH - Pending a more detailed development of output type specifications
+    write_daily_files = True  # JCH - Pending a more detailed development of output type specifications
     convolution = False
 
     pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro_path, output_path, input_years,
