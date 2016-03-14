@@ -35,6 +35,7 @@ def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro
 
                 # Loop through scenarios contained in the recipe
                 scenarios = recipe_files[recipe_id][year]
+
                 for scenario_file, area in scenarios:
 
                     # Read scenario
@@ -64,13 +65,12 @@ def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro
 
 def main():
 
-    input_file = r"..\MarkTwain\Inputs\SAM.inp"
-    flow_file = r"..\MarkTwain\Flows\region_07.csv"
-
-    scenario_dir = r"..\MarkTwain\Scenarios\Pickled"
-    recipe_dir = r"..\MarkTwain\Recipes"
-    hydro_dir = r"..\MarkTwain\Hydro"
-    output_dir = r"..\Outputs\Python"
+    input_file = r"..\bin\MarkTwain\Inputs\SAM.inp"
+    flow_file = r"..\bin\MarkTwain\Flows\region_07.csv"
+    scenario_dir = r"..\bin\MarkTwain\Scenarios\Pickled"
+    recipe_dir = r"..\bin\MarkTwain\Recipes"
+    hydro_dir = r"..\bin\MarkTwain\Hydro"
+    output_dir = r"..\bin\Outputs\Python"
 
     recipe_format = "nhd_recipe_(\d+?)_(\d{4}).txt"
     hydro_format = "{}_hydro.txt"

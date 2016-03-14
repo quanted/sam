@@ -269,7 +269,7 @@ def waterbody_concentration(q, v, length, total_runoff, runoff_mass, erosion_mas
     total_flow = baseflow + total_runoff
     total_flow[v == 0] = 0.0  # JCH - We'll need to revisit this
     xc = total_flow / v
-    volume = (xc * 40.)
+    volume = xc * 40.
 
     # Compute daily concentration from runoff
     conc_days = ((runoff_mass > 0.0) & (volume > 0.0))
@@ -330,7 +330,9 @@ def waterbody_concentration(q, v, length, total_runoff, runoff_mass, erosion_mas
             mavg1_store = aqconc_avg1[d] / fw1[d] * daily_depth[d] * sa
 
     # Adjust for change in units
-    runoff_conc = np.nan_to_num((runoff_mass * 1000000.) / total_runoff)
+    with np.errstate(divide='ignore'):
+        runoff_conc = (runoff_mass * 1000000.) / total_runoff
+        runoff_conc[np.isnan(runoff_conc)] = 0.0
     avgconc_adj *= 1000000.
 
     return total_flow, baseflow, avgconc_adj, runoff_conc, aqconc_avg1, aqconc_avg2, aq_conc1
