@@ -66,7 +66,7 @@ class Sam(UberModel, SamInputs, SamOutputs):
 
     def __init__(self, pd_obj, pd_obj_exp):
         """Class representing the sam model and containing all its methods"""
-        super(Stir, self).__init__()
+        super(Sam, self).__init__()
         self.pd_obj = pd_obj
         self.pd_obj_exp = pd_obj_exp
         self.pd_obj_out = None
