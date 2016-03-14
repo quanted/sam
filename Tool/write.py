@@ -3,8 +3,8 @@ from collections import OrderedDict
 import numpy as np
 
 
-def daily(output_file, recipe_id, year, dates, total_flow, baseflow, total_runoff, total_conc, runoff_conc, runoff_mass,
-          aqconc_avg1=np.array([]), aqconc_avg2=np.array([]), aq1store=np.array([])):
+def daily(output_file, recipe_id, year, dates, total_flow, baseflow, total_runoff,
+          total_conc, runoff_conc, runoff_mass, aqconc_avg1, aqconc_avg2, aq1store=np.array([])):
 
     # Create the output directory if it doesn't exist
     if not os.path.isdir(output_file.dir):
@@ -12,7 +12,7 @@ def daily(output_file, recipe_id, year, dates, total_flow, baseflow, total_runof
     output_file = output_file.format(recipe_id, year)
 
     # Create output
-    output_fields = OrderedDict([
+    raw_output = OrderedDict([
         ("Date", dates),                    # Dates
         ("Conc(ug/L)", total_conc),         # Total pesticide concentration
         ("RMass(kg)", runoff_mass),         # Mass of pesticide in runoff
@@ -26,14 +26,15 @@ def daily(output_file, recipe_id, year, dates, total_flow, baseflow, total_runof
         ])
 
     # Filter out fields that don't have data
-    for key, value in output_fields.items():
-        if not (key == "Date" or value.any()):
-            del output_fields[key]
+    final_output = OrderedDict()
+    for key, value in raw_output.items():
+        if (key == "Date" or value.size):
+            final_output[key] = value
 
     # Initialize header and field types.  Field type is automatically float for all but dates
-    header = ",".join(output_fields.keys())
-    out_values = np.array(list(output_fields.values())).T
-    fmt = ["%s"] + ["%1.4e"] * (len(output_fields.values()) - 1)
+    header = ",".join(final_output.keys())
+    out_values = np.array(list(final_output.values())).T
+    fmt = ["%s"] + ["%1.4e"] * (len(final_output.values()) - 1)
 
     # Write to file
     np.savetxt(output_file, out_values, delimiter=",", fmt=fmt, header=header, newline="\n", comments="")
