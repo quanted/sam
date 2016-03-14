@@ -9,7 +9,9 @@ def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro
                          process_benthic, process_erosion, write_daily_files, convolution):
 
     # Read SAM input file
-    input = read.input_file(input_file)
+    import sys
+    print(sys.path)
+    input = read.input_file(input_file.replace('\\', '/'))
 
     # Find and assemble recipes
     recipe_files = read.recipes(recipe_path, input_years, scenario_dir, input.cropdesired)
@@ -65,12 +67,15 @@ def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro
 
 def main():
 
-    input_file = r"..\bin\MarkTwain\Inputs\SAM.inp"
-    flow_file = r"..\bin\MarkTwain\Flows\region_07.csv"
-    scenario_dir = r"..\bin\MarkTwain\Scenarios\Pickled"
-    recipe_dir = r"..\bin\MarkTwain\Recipes"
-    hydro_dir = r"..\bin\MarkTwain\Hydro"
-    output_dir = r"..\bin\Outputs\Python"
+    import os
+    path = os.path.abspath(os.path.curdir)
+
+    input_file = os.path.join(path, "bin", "MarkTwain", "Inputs", "SAM.inp")
+    flow_file = os.path.join(path, "bin", "MarkTwain", "Flows", "region_07.csv")
+    scenario_dir = os.path.join(path, "bin", "MarkTwain", "Scenarios", "Pickled")
+    recipe_dir = os.path.join(path, "bin", "MarkTwain", "Recipes")
+    hydro_dir = os.path.join(path, "bin", "MarkTwain", "Hydro")
+    output_dir = os.path.join(path, "bin", "Outputs", "Python")
 
     recipe_format = "nhd_recipe_(\d+?)_(\d{4}).txt"
     hydro_format = "{}_hydro.txt"
