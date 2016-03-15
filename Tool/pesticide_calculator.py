@@ -68,7 +68,8 @@ def pesticide_calculator(input_file, flow_file, scenario_dir, recipe_path, hydro
 def main():
 
     import os
-    path = os.path.abspath(os.path.curdir)
+    #path = os.path.abspath(os.path.curdir)
+    path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
 
     input_file = os.path.join(path, "bin", "MarkTwain", "Inputs", "SAM.inp")
     flow_file = os.path.join(path, "bin", "MarkTwain", "Flows", "region_07.csv")
