@@ -48,15 +48,15 @@ class SamOutputs(object):
     def __init__(self):
         """Class representing the outputs for Sam"""
         super(SamOutputs, self).__init__()
-        self.output_type = pd.Series(name="output_type")
-        self.output_avg_days = pd.Series(name="output_avg_days")
-        self.output_time_avg_option = pd.Series(name="output_time_avg_option")
-        self.output_time_avg_conc = pd.Series(name="output_time_avg_conc")
-        self.output_tox_value = pd.Series(name="output_tox_value")
-        self.output_tox_thres_exceed = pd.Series(name="output_tox_thres_exceed")
-        self.output_format = pd.Series(name="output_format")
-        self.workers = pd.Series(name="workers")
-        self.processes = pd.Series(name="processes")
+        #self.output_type = pd.Series(name="output_type")
+        #self.output_avg_days = pd.Series(name="output_avg_days")
+        #self.output_time_avg_option = pd.Series(name="output_time_avg_option")
+        #self.output_time_avg_conc = pd.Series(name="output_time_avg_conc")
+        #self.output_tox_value = pd.Series(name="output_tox_value")
+        #self.output_tox_thres_exceed = pd.Series(name="output_tox_thres_exceed")
+        #self.output_format = pd.Series(name="output_format")
+        #self.workers = pd.Series(name="workers")
+        #self.processes = pd.Series(name="processes")
 
 
 class Sam(UberModel, SamInputs, SamOutputs):
