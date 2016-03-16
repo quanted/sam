@@ -3,6 +3,7 @@ import csv
 import sys
 import numpy as np
 import datetime
+import json
 from collections import defaultdict, OrderedDict
 import re
 import pickle
@@ -131,81 +132,107 @@ def scenario(path, input, process_erosion=True):
     return s
 
 
-def input_file(input_file):
+def json_input(json_data):
 
-    def fetch(reader):
-        line = reader.readline()
-        return line.split("!")[0].strip()
-
-    with open(input_file, 'r') as f:
-        p = {
-            "eco_or_dw": fetch(f),			                # eco or dw
-            "start_count": int(fetch(f)),		        	# num_record of simulation start date, since 1/1/1961
-            "startjul": int(fetch(f)),	        	    	# Simulation Start Julian date
-            "endjul": int(fetch(f)),		             	# Simulation End Julian date
-            "firstyear": int(fetch(f)),	        	    	# First year of simulation
-            "firstmon": int(fetch(f)),	        	    	# First month of simulation
-            "firstday": int(fetch(f)),		              	# First day of simulation
-            "lastyear": int(fetch(f)),		             	# Last year of simulation
-            "numberyears": int(fetch(f)),		        	# Number of years in simulation
-            "ndates": int(fetch(f)),		    	        # Total # days in simulation
-            "jul_dates": list(map(int, fetch(f).split())),  # Julian dates of simulation days
-            "sdates": fetch(f),			                    # Actual date strings
-            "chem": fetch(f),			                    # Chemical name
-            "number_crop_ids": int(fetch(f)),               # Total # crops
-            "cropdesired": list(map(int, fetch(f).split())),# Crop IDs
-            "koc": float(fetch(f)),			                # Kd, read as mL/g, Kd = Koc*org_carbon
-            "kflag": int(fetch(f)),			                # Koc=1, Kd=2
-            "soil_halflife": float(fetch(f)),               # Soil half life
-            "appflag": int(fetch(f)),			            # Application by Crop Stage (1) or User-defined (2)
-            "distribflag": int(fetch(f)),		        	# Application distribution flag (1=unif, 2=unif step, 3=triang)
-            "cropstage": int(fetch(f)),		                # Crop stage for app (pl=1,emer=2,mat=3,harv=4) or 0
-            "stagedays": int(fetch(f)),			            # Days after/before crop stage, or 0
-            "stageflag": int(fetch(f)),			            # after(1) or before(2) crop stage, or 0
-            "napps": int(fetch(f)),			                # Total Number of Applications, =0 cropstage app
-            "twindow1": int(fetch(f)),			            # Application time window1 (d), applicable to Unif, Unif Step, Triangular
-            "twindow2": int(fetch(f)),			            # Application time window2 (d), applicable to Unif Step
-            "pct1": float(fetch(f)),			            # Percent of App during window1 (%), applicable to Unif, Unif Step
-            "pct2": float(fetch(f)),			            # Percent of App during window2 (%), applicable to Unif Step
-            "appnumrec_init": int(fetch(f)),			    # Application num_record, =0 cropstage app
-            "appdate_init": int(fetch(f)),			        # Application Julian dates, =0 cropstage app
-            "appmass_init": float(fetch(f)),                # Mass of each application (kg/ha, coverted to kg/m2 below)
-            "appmethod_init": int(fetch(f)),			    # Application method (1=ground,2=foliar)
-            "outtype": int(fetch(f)),			            # Output type (1=Daily,2=TimeAvg)
-            "avgpd": int(fetch(f)),			                # Averaging period (days)
-            "outputtype": int(fetch(f)),			        # Time-Avg Output Type (1=AvgConcs, 2=ToxExceed)
-            "timeavg": int(fetch(f)),		            	# Time-Avg Conc Options Selected
-            "threshold": int(fetch(f)),		            	# Threshold(ug/L)
-            "thresoutput": int(fetch(f)),			        # Threshold Options Selected
-            "outformat": int(fetch(f))			            # Output format (1=table,2=map,3=plot,4=download)
-            }
-        
-        i = ParameterSet(**p)
-
-        # Initialize variables
-        i.appmass_init /= 10000.0  # convert applied Mass to kg/m2
-        i.degradation_aqueous = 0.693 / i.soil_halflife	 #aqueous, per day
-        i.koc /= 1000.0  # Now in m3/kg
-
-        # Initialize arrays
-
-        i.appnumrec = \
-            np.int64(np.append(np.full(i.napps, i.appnumrec_init), np.zeros((i.start_count + i.ndates) - i.napps)))
-
-        i.appmass = np.append(np.full(i.napps, i.appmass_init), np.zeros((i.start_count + i.ndates) - i.napps))
-
-        i.start_count -= 1  # Adjustment for zero based numbering in Python
-
-        # Dates
-        i.dates = \
-            [datetime.date(i.firstyear, i.firstmon, i.firstday) + datetime.timedelta(days=d) for d in range(i.ndates)]
-
-        i.applications =  ParameterSet(**{"twindow1":i.twindow1, "twindow2":i.twindow2,
-                                          "pct1":i.pct1, "pct2":i.pct2,
-                                          "init_app": i.appnumrec_init, "init_mass": i.appmass_init})
+    def parse_date(datestring):
+        month, day, year = map(int, datestring.split("/"))
+        return datetime(year, month, day)
 
 
-        return i
+    data = json.loads(json_data)
+
+    data_map = \
+        {
+            "eco_or_dw": str,		    	                # eco or dw
+            "start_count": int,		                      	# num_record of simulation start date, since 1/1/1961
+            "startjul": int,	                	    	# Simulation Start Julian date
+            "endjul": int,		                          	# Simulation End Julian date
+            "firstyear": int,	                	    	# First year of simulation
+            "firstmon": int,	                	    	# First month of simulation
+            "firstday": int,		                    	# First day of simulation
+            "lastyear": int,		                      	# Last year of simulation
+            "numberyears": int,		                    	# Number of years in simulation
+            "ndates": int,		                 	        # Total # days in simulation
+            "jul_dates": lambda x: list(map(int, x.split(","))),  # Julian dates of simulation days
+            "sdates": str,		    	                    # Actual date strings
+            "chem": str,			                        # Chemical name
+            "number_crop_ids": int,                         # Total # crops
+            "cropdesired": lambda x: list(map(int, x.split(","))),     # Crop IDs
+            "koc": float,			                # Koc, read as mL/g
+            "kflag": int,			                # Koc=1, Kd=2
+            "soil_halflife": float,                 # Soil half life
+            "appflag": int,			                # Application by Crop Stage (1) or User-defined (2)
+            "distribflag": int,		             	# Application distribution flag (1=unif, 2=unif step, 3=triang)
+            "cropstage": int,		                # Crop stage for app (pl=1,emer=2,mat=3,harv=4) or 0
+            "stagedays": int,			            # Days after/before crop stage, or 0
+            "stageflag": int,			            # after(1) or before(2) crop stage, or 0
+            "napps": int,			                # Total Number of Applications, =0 cropstage app
+            "twindow1": int,			            # Application time window1 (d), applicable to Unif, Unif Step, Triangular
+            "twindow2": int,			            # Application time window2 (d), applicable to Unif Step
+            "pct1": float,			                # Percent of App during window1 (%), applicable to Unif, Unif Step
+            "pct2": float,			                # Percent of App during window2 (%), applicable to Unif Step
+            "appnumrec_init": int,	    		    # Application num_record, =0 cropstage app
+            "appdate_init": int,			        # Application Julian dates, =0 cropstage app
+            "appmass_init": float,                  # Mass of each application (kg/ha, coverted to kg/m2 below)
+            "appmethod_init": int,		    	    # Application method (1=ground,2=foliar)
+            "outtype": int,			                # Output type (1=Daily,2=TimeAvg)
+            "avgpd": int,			                # Averaging period (days)
+            "outputtype": int,			            # Time-Avg Output Type (1=AvgConcs, 2=ToxExceed)
+            "timeavg": int,		                	# Time-Avg Conc Options Selected
+            "threshold": int,		            	# Threshold(ug/L)
+            "thresoutput": int,			            # Threshold Options Selected
+            "outformat": int,			            # Output format (1=table,2=map,3=plot,4=download)
+            "run_type": str,
+            "input_years": lambda x: list(map(int, x.split())),
+            "process_benthic": lambda x: x == "True",
+            "process_erosion": lambda x: x == "True",
+            "write_daily_files": lambda x: x == "True",
+            "convolution": lambda x: x == "True"
+        }
+
+
+
+    # Check if any required input data are missing
+    missing_data = set(data_map.keys()) - set(data.get('inputs', {}).keys())
+    if missing_data:
+        sys.exit("No input data provided for required fields: " + ", ".join(missing_data))
+
+    # Format data type of input json
+    input_data = {}
+    for key, val in data['inputs'].items():
+        data_format = data_map.get(key)
+        if data_format:
+            input_data[key] = data_format(val)
+        else:
+            print("Input field \"{}\" is not understood".format(key))
+
+
+    i = ParameterSet(**input_data)
+
+    # Initialize variables
+    i.appmass_init /= 10000.0  # convert applied Mass to kg/m2
+    i.degradation_aqueous = 0.693 / i.soil_halflife	 #aqueous, per day
+    i.koc /= 1000.0  # Now in m3/kg
+
+    # Initialize arrays
+
+    i.appnumrec = \
+        np.int64(np.append(np.full(i.napps, i.appnumrec_init), np.zeros((i.start_count + i.ndates) - i.napps)))
+
+    i.appmass = np.append(np.full(i.napps, i.appmass_init), np.zeros((i.start_count + i.ndates) - i.napps))
+
+    i.start_count -= 1  # Adjustment for zero based numbering in Python
+
+    # Dates
+    i.dates = \
+        [datetime.date(i.firstyear, i.firstmon, i.firstday) + datetime.timedelta(days=d) for d in range(i.ndates)]
+
+    i.applications =  ParameterSet(**{"twindow1":i.twindow1, "twindow2":i.twindow2,
+                                      "pct1":i.pct1, "pct2":i.pct2,
+                                      "init_app": i.appnumrec_init, "init_mass": i.appmass_init})
+
+
+    return i
 
 
 def lake_file(lake_file):

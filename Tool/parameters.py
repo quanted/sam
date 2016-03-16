@@ -1,4 +1,4 @@
-from Tool.read import ParameterSet
+from Tool.read import ParameterSet, FilePath
 
 # Parameters related directly to pesticide degradation
 plant_params = {
@@ -46,9 +46,18 @@ stream_channel_params = {
     "b": 0.55
 }
 
+# Preprocessed data repositories
+data_params = {
+    "flow_file": r"..\bin\MarkTwain\Flows\region_07.csv",
+    "scenario_dir": r"..\bin\MarkTwain\Scenarios\Pickled",
+    "recipe_path": FilePath(r"..\bin\MarkTwain\Recipes", "nhd_recipe_(\d+?)_(\d{4}).txt"),
+    "hydro_path": FilePath(r"..\bin\MarkTwain\Hydro", "{}_hydro.txt"),
+    "output_path": FilePath(r"..\bin\Outputs\Python", "Eco_{}_{}_daily.out")
+}
+
 plant = ParameterSet(**plant_params)
 soil = ParameterSet(**soil_params)
 water_column = ParameterSet(**water_column_params)
 benthic = ParameterSet(**benthic_params)
 stream_channel = ParameterSet(**stream_channel_params)
-
+data = ParameterSet(**data_params)
