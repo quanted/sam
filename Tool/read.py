@@ -132,14 +132,11 @@ def scenario(path, input, process_erosion=True):
     return s
 
 
-def json_input(json_data):
+def input_validate(data):
 
     def parse_date(datestring):
         month, day, year = map(int, datestring.split("/"))
         return datetime(year, month, day)
-
-
-    data = json.loads(json_data)
 
     data_map = \
         {
@@ -190,8 +187,6 @@ def json_input(json_data):
             "convolution": lambda x: x == "True"
         }
 
-
-
     # Check if any required input data are missing
     missing_data = set(data_map.keys()) - set(data.get('inputs', {}).keys())
     if missing_data:
@@ -205,7 +200,6 @@ def json_input(json_data):
             input_data[key] = data_format(val)
         else:
             print("Input field \"{}\" is not understood".format(key))
-
 
     i = ParameterSet(**input_data)
 
