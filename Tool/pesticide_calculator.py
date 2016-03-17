@@ -5,7 +5,6 @@ from Tool import pesticide_functions as functions
 
 
 def pesticide_calculator(input_data):
-
     from Tool.parameters import data as d
 
     # Initialize parameter set from json input

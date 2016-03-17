@@ -138,53 +138,59 @@ def input_validate(data):
         month, day, year = map(int, datestring.split("/"))
         return datetime(year, month, day)
 
+    def truefalse(string):
+        return True if string == "True" else False
+
+    def split_str(string):
+        return list(map(int, string.split(",")))
+
     data_map = \
         {
-            "eco_or_dw": str,		    	                # eco or dw
-            "start_count": int,		                      	# num_record of simulation start date, since 1/1/1961
-            "startjul": int,	                	    	# Simulation Start Julian date
-            "endjul": int,		                          	# Simulation End Julian date
-            "firstyear": int,	                	    	# First year of simulation
-            "firstmon": int,	                	    	# First month of simulation
-            "firstday": int,		                    	# First day of simulation
-            "lastyear": int,		                      	# Last year of simulation
-            "numberyears": int,		                    	# Number of years in simulation
-            "ndates": int,		                 	        # Total # days in simulation
-            "jul_dates": lambda x: list(map(int, x.split(","))),  # Julian dates of simulation days
-            "sdates": str,		    	                    # Actual date strings
-            "chem": str,			                        # Chemical name
-            "number_crop_ids": int,                         # Total # crops
-            "cropdesired": lambda x: list(map(int, x.split(","))),     # Crop IDs
-            "koc": float,			                # Koc, read as mL/g
-            "kflag": int,			                # Koc=1, Kd=2
-            "soil_halflife": float,                 # Soil half life
-            "appflag": int,			                # Application by Crop Stage (1) or User-defined (2)
-            "distribflag": int,		             	# Application distribution flag (1=unif, 2=unif step, 3=triang)
-            "cropstage": int,		                # Crop stage for app (pl=1,emer=2,mat=3,harv=4) or 0
-            "stagedays": int,			            # Days after/before crop stage, or 0
-            "stageflag": int,			            # after(1) or before(2) crop stage, or 0
-            "napps": int,			                # Total Number of Applications, =0 cropstage app
-            "twindow1": int,			            # Application time window1 (d), applicable to Unif, Unif Step, Triangular
-            "twindow2": int,			            # Application time window2 (d), applicable to Unif Step
-            "pct1": float,			                # Percent of App during window1 (%), applicable to Unif, Unif Step
-            "pct2": float,			                # Percent of App during window2 (%), applicable to Unif Step
-            "appnumrec_init": int,	    		    # Application num_record, =0 cropstage app
-            "appdate_init": int,			        # Application Julian dates, =0 cropstage app
-            "appmass_init": float,                  # Mass of each application (kg/ha, coverted to kg/m2 below)
-            "appmethod_init": int,		    	    # Application method (1=ground,2=foliar)
-            "outtype": int,			                # Output type (1=Daily,2=TimeAvg)
-            "avgpd": int,			                # Averaging period (days)
-            "outputtype": int,			            # Time-Avg Output Type (1=AvgConcs, 2=ToxExceed)
-            "timeavg": int,		                	# Time-Avg Conc Options Selected
-            "threshold": int,		            	# Threshold(ug/L)
-            "thresoutput": int,			            # Threshold Options Selected
-            "outformat": int,			            # Output format (1=table,2=map,3=plot,4=download)
+            "eco_or_dw": str,               # eco or dw
+            "start_count": int,		        # num_record of simulation start date, since 1/1/1961
+            "startjul": int,	            # Simulation Start Julian date
+            "endjul": int,		            # Simulation End Julian date
+            "firstyear": int,	            # First year of simulation
+            "firstmon": int,	            # First month of simulation
+            "firstday": int,		        # First day of simulation
+            "lastyear": int,		        # Last year of simulation
+            "numberyears": int,		        # Number of years in simulation
+            "ndates": int,		            # Total # days in simulation
+            "jul_dates": split_str,         # Julian dates of simulation days
+            "sdates": str,		    	    # Actual date strings
+            "chem": str,			        # Chemical name
+            "number_crop_ids": int,         # Total # crops
+            "cropdesired": split_str,       # Crop IDs
+            "koc": float,			        # Koc, read as mL/g
+            "kflag": int,			        # Koc=1, Kd=2
+            "soil_halflife": float,         # Soil half life
+            "appflag": int,			        # Application by Crop Stage (1) or User-defined (2)
+            "distribflag": int,		        # Application distribution flag (1=unif, 2=unif step, 3=triang)
+            "cropstage": int,		        # Crop stage for app (pl=1,emer=2,mat=3,harv=4) or 0
+            "stagedays": int,			    # Days after/before crop stage, or 0
+            "stageflag": int,			    # after(1) or before(2) crop stage, or 0
+            "napps": int,			        # Total Number of Applications, =0 cropstage app
+            "twindow1": int,			    # Application time window1 (d), applicable to Unif, Unif Step, Triangular
+            "twindow2": int,			    # Application time window2 (d), applicable to Unif Step
+            "pct1": float,			        # Percent of App during window1 (%), applicable to Unif, Unif Step
+            "pct2": float,			        # Percent of App during window2 (%), applicable to Unif Step
+            "appnumrec_init": int,	    	# Application num_record, =0 cropstage app
+            "appdate_init": int,			# Application Julian dates, =0 cropstage app
+            "appmass_init": float,          # Mass of each application (kg/ha, coverted to kg/m2 below)
+            "appmethod_init": int,		    # Application method (1=ground,2=foliar)
+            "outtype": int,			        # Output type (1=Daily,2=TimeAvg)
+            "avgpd": int,			        # Averaging period (days)
+            "outputtype": int,			    # Time-Avg Output Type (1=AvgConcs, 2=ToxExceed)
+            "timeavg": int,		            # Time-Avg Conc Options Selected
+            "threshold": int,		        # Threshold(ug/L)
+            "thresoutput": int,			    # Threshold Options Selected
+            "outformat": int,			    # Output format (1=table,2=map,3=plot,4=download)
             "run_type": str,
-            "input_years": lambda x: list(map(int, x.split())),
-            "process_benthic": lambda x: x == "True",
-            "process_erosion": lambda x: x == "True",
-            "write_daily_files": lambda x: x == "True",
-            "convolution": lambda x: x == "True"
+            "input_years": truefalse,
+            "process_benthic": truefalse,
+            "process_erosion": truefalse,
+            "write_daily_files": truefalse,
+            "convolution": truefalse
         }
 
     # Check if any required input data are missing
@@ -221,10 +227,9 @@ def input_validate(data):
     i.dates = \
         [datetime.date(i.firstyear, i.firstmon, i.firstday) + datetime.timedelta(days=d) for d in range(i.ndates)]
 
-    i.applications =  ParameterSet(**{"twindow1":i.twindow1, "twindow2":i.twindow2,
-                                      "pct1":i.pct1, "pct2":i.pct2,
-                                      "init_app": i.appnumrec_init, "init_mass": i.appmass_init})
-
+    i.applications = ParameterSet(**{"twindow1":i.twindow1, "twindow2":i.twindow2,
+                                     "pct1":i.pct1, "pct2":i.pct2,
+                                     "init_app": i.appnumrec_init, "init_mass": i.appmass_init})
 
     return i
 
