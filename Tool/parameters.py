@@ -1,4 +1,6 @@
+import os
 from Tool.read import ParameterSet, FilePath
+
 
 # Parameters related directly to pesticide degradation
 plant_params = {
@@ -47,12 +49,13 @@ stream_channel_params = {
 }
 
 # Preprocessed data repositories
+path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
 data_params = {
-    "flow_file": r"..\bin\MarkTwain\Flows\region_07.csv",
-    "scenario_dir": r"..\bin\MarkTwain\Scenarios\Pickled",
-    "recipe_path": FilePath(r"..\bin\MarkTwain\Recipes", "nhd_recipe_(\d+?)_(\d{4}).txt"),
-    "hydro_path": FilePath(r"..\bin\MarkTwain\Hydro", "{}_hydro.txt"),
-    "output_path": FilePath(r"..\bin\Outputs\Python", "Eco_{}_{}_daily.out")
+    "flow_file": os.path.join(path, "bin", "MarkTwain", "Flows", "region_07.csv"),
+    "scenario_dir": os.path.join(path, "bin", "MarkTwain", "Scenarios", "Pickled"),
+    "recipe_path": FilePath(os.path.join(path, "bin", "MarkTwain", "Recipes"), "nhd_recipe_(\d+?)_(\d{4}).txt"),
+    "hydro_path": FilePath(os.path.join(path, "bin", "MarkTwain", "Hydro"), "{}_hydro.txt"),
+    "output_path": FilePath(os.path.join(path, "bin", "Outputs", "Python"), "Eco_{}_{}_daily.out")
 }
 
 plant = ParameterSet(**plant_params)
