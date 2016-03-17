@@ -331,6 +331,7 @@ def waterbody_concentration(q, v, length, total_runoff, runoff_mass, erosion_mas
 
     # Adjust for change in units
     with np.errstate(divide='ignore'):
+        print(list(total_runoff))
         runoff_conc = (runoff_mass * 1000000.) / total_runoff
         runoff_conc[np.isnan(runoff_conc)] = 0.0
     avgconc_adj *= 1000000.

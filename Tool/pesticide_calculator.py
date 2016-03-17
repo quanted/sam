@@ -5,12 +5,12 @@ from Tool import write
 from Tool import pesticide_functions as functions
 
 
-def pesticide_calculator(json_input):
+def pesticide_calculator(input_dict):
 
     from parameters import data as d
 
     # Initialize parameter set from json input
-    i = read.json_input(json_input)
+    i = read.user_input(input_dict)
 
     # Find and assemble recipes
     recipe_files = read.recipes(d.recipe_path, i.input_years, d.scenario_dir, i.cropdesired)
@@ -66,8 +66,7 @@ def pesticide_calculator(json_input):
 
 def main():
 
-    json_input = \
-        '''
+    inputs = \
         {"inputs": {
             "ndates": "5479",
             "cropdesired": "10, 40, 15, 18",
@@ -115,9 +114,8 @@ def main():
             "write_daily_files": "True",
             "convolution": "False"
         }}
-        '''
 
-    pesticide_calculator(json_input)
+    pesticide_calculator(inputs)
 
 if __name__ == "__main__":
     main()
