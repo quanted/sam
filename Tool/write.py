@@ -2,9 +2,8 @@ import os
 from collections import OrderedDict
 import numpy as np
 
-
 def daily(output_file, recipe_id, year, dates, total_flow, baseflow, total_runoff,
-          total_conc, runoff_conc, runoff_mass, aqconc_avg1, aqconc_avg2, aq1store=np.array([])):
+          runoff_mass, runoff_conc, aqconc_avg_wb, aqconc_avg1,aqconc_avg2, aq_peak1=np.array([])):
 
     # Create the output directory if it doesn't exist
     if not os.path.isdir(output_file.dir):
@@ -14,15 +13,16 @@ def daily(output_file, recipe_id, year, dates, total_flow, baseflow, total_runof
     # Create output
     raw_output = OrderedDict([
         ("Date", dates),                    # Dates
-        ("Conc(ug/L)", total_conc),         # Total pesticide concentration
-        ("RMass(kg)", runoff_mass),         # Mass of pesticide in runoff
-        ("Runoff(m)", total_runoff),        # Quantity of water in runoff
-        ("RConc(ug/L)", runoff_conc),       # Concentration of pesticide in runoff
-        ("WC_Conc(kg/m3)", aqconc_avg1),    # Concentration of pesticide in water column
-        ("Ben_Conc(kg/m3)", aqconc_avg2),   # Concentration of pesticide in benthic sediments
-        ("PeakWC(kg/m3)", aq1store),        # Peak concentration in water column (JCH - is that right?)
         ("TotalFlow(m3)", total_flow),      # Total discharge of water
         ("Baseflow(m3)", baseflow)          # Baseflow
+        ("Runoff(m)", total_runoff),        # Runoff flow
+        ("RMass(kg)", runoff_mass),         # Mass of pesticide in runoff
+        ("RConc(ug/L)", runoff_conc),       # Concentration of pesticide in runoff
+        ("WB_Conc(ug/L)", aqconc_avg_wb)    # Daily avg aqueous conc in water column of water body, no benthic
+        ("WC_Conc(ug/L)", aqconc_avg1),     # Daily avg aqueous conc of pesticide in water column of water body
+        ("Ben_Conc(ug/L)", aqconc_avg2),    # Daily avg aqueous conc of pesticide in benthic region of water body
+        ("WC_Peak(ug/L)", aq_peak1),        # Daily peak aqueous conc of pesticide in water column of water body
+
         ])
 
     # Filter out fields that don't have data

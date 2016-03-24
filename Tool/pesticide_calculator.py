@@ -43,7 +43,7 @@ def pesticide_calculator(input_data):
                     # Compute pesticide applications
                     pesticide_mass_soil = functions.applications(input, scenario)
 
-                    # Determine the loading of pesticide into runoff and erosion - MMF added erosion
+                    # Determine the loading of pesticide into runoff and erosion
                     runoff_mass, erosion_mass = functions.transport(pesticide_mass_soil, scenario, input, i.process_erosion)
 
                     # Update runoff and erosion totals

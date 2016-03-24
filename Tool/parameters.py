@@ -31,7 +31,7 @@ water_column_params = {
     "plmas": 0          # water column biomass conc (mg/L)
     }
 
-# Benthic Parameters - USEPA OPP defaults
+# Benthic Parameters - USEPA OPP defaults from EXAMS
 benthic_params = {
     "depth": 0.05,			# benthic depth (m)
     "porosity": 0.65,		# benthic porosity
@@ -40,6 +40,7 @@ benthic_params = {
     "doc": 5,			# benthic dissolved organic carbon content (mg/L)
     "bnmas": 0,			# benthic biomass intensity (g/m2)
     "d_over_dx": 1      # mass transfer coefficient for exchange between benthic and water column (m/s)
+                        # (can be modified later if data exists)
 }
 
 # Stream channel geometry

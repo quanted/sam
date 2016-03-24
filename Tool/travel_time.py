@@ -85,6 +85,7 @@ def main():
     region = '07'
     sam_output_id = "dummy_mtb"
 
+   #Relative paths
     lakefile_dir = r"T:\SAM\Preprocessed\LakeFiles"
     upstream_repository = r"T:\SAM\Preprocessed\UpstreamPaths"
     sam_output_dir = r"T:\SAM\Preprocessed\OutputCubes"
