@@ -1,5 +1,9 @@
+import datetime
 import os
-from Tool.read import ParameterSet, FilePath
+
+from Tool.read import FilePath
+from Tool.read import ParameterSet
+
 
 
 # Parameters related directly to pesticide degradation
@@ -33,8 +37,8 @@ water_column_params = {
 
 # Benthic Parameters - USEPA OPP defaults from EXAMS
 benthic_params = {
-    "depth": 0.05,			# benthic depth (m)
-    "porosity": 0.65,		# benthic porosity
+    "depth": 0.05,		# benthic depth (m)
+    "porosity": 0.65,   # benthic porosity
     "bulk_density": 1,  # bulk density, dry solid mass/total vol (g/cm3)
     "froc": 0,			# benthic organic carbon fraction
     "doc": 5,			# benthic dissolved organic carbon content (mg/L)
@@ -45,13 +49,13 @@ benthic_params = {
 
 # Stream channel geometry
 stream_channel_params = {
-    "a": 4.28,
+    "a": 4.28,         # Stream channel width is computed from the power regression function w = a(q/v)^b
     "b": 0.55
 }
 
 # Preprocessed data repositories
 path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
-data_params = {
+path_params = {
     "flow_file": os.path.join(path, "bin", "MarkTwain", "Flows", "region_07.csv"),
     "scenario_dir": os.path.join(path, "bin", "MarkTwain", "Scenarios", "Pickled"),
     "recipe_path": FilePath(os.path.join(path, "bin", "MarkTwain", "Recipes"), "nhd_recipe_(\d+?)_(\d{4}).txt"),
@@ -59,9 +63,29 @@ data_params = {
     "output_path": FilePath(os.path.join(path, "bin", "Outputs", "Python"), "Eco_{}_{}_daily.out")
 }
 
-plant = ParameterSet(**plant_params)
-soil = ParameterSet(**soil_params)
-water_column = ParameterSet(**water_column_params)
-benthic = ParameterSet(**benthic_params)
-stream_channel = ParameterSet(**stream_channel_params)
-data = ParameterSet(**data_params)
+date_params = {
+    "hydro_start": datetime.date(1961, 1, 1),
+    "scenario_start": datetime.date(1961, 1, 1)
+}
+# To be added to input file
+to_be_added_params = {
+        # Hardwired stuff to get added to the front end
+        "years": [2010, 2011, 2012, 2013],
+        "process_benthic": False,
+        "process_erosion": False,
+        "write_daily_files": True,
+        "convolution": False,
+        "cropstage": 2,  # JCH - replace
+        "stagedays": 14,
+        "stageflag": 2, # JCH - replace
+        "appnumrec_init": 0  # JCH - replace,
+    
+}
+
+starting_dates = ParameterSet(date_params)
+plant = ParameterSet(plant_params)
+soil = ParameterSet(soil_params)
+water_column = ParameterSet(water_column_params)
+benthic = ParameterSet(benthic_params)
+stream_channel = ParameterSet(stream_channel_params)
+paths = ParameterSet(path_params)
