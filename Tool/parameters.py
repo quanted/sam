@@ -1,10 +1,8 @@
 import datetime
 import os
 
-from Tool.read import FilePath
-from Tool.read import ParameterSet
-
-
+#from Tool.read import FilePath, ParameterSet
+from read import FilePath, ParameterSet
 
 # Parameters related directly to pesticide degradation
 plant_params = {
@@ -23,7 +21,6 @@ soil_params = {
     "delx": 2.0,                # cm, one 2 cm compartment, MMF
     "delt": 86400.              # seconds per day, time interval
 }
-
 
 # Water Column Parameters - USEPA OPP defaults
 water_column_params = {
@@ -53,34 +50,56 @@ stream_channel_params = {
     "b": 0.55
 }
 
+# Time of Travel defaults
+time_of_travel_params = {
+    "minimum_residence_time": 1.5,  # Minimum residence time in days for a reservoir to be treated as a reservoir
+    "round_down": True, # Bin reaches by nearest interval, rounding down
+    "interval": 1  # days
+}
+
 # Preprocessed data repositories
 path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
 path_params = {
-    "flow_file": os.path.join(path, "bin", "MarkTwain", "Flows", "region_07.csv"),
-    "scenario_dir": os.path.join(path, "bin", "MarkTwain", "Scenarios", "Pickled"),
-    "recipe_path": FilePath(os.path.join(path, "bin", "MarkTwain", "Recipes"), "nhd_recipe_(\d+?)_(\d{4}).txt"),
-    "hydro_path": FilePath(os.path.join(path, "bin", "MarkTwain", "Hydro"), "{}_hydro.txt"),
-    "output_path": FilePath(os.path.join(path, "bin", "Outputs", "Python"), "Eco_{}_{}_daily.out")
+
+    # Pesticide calculator
+    "flow_file": os.path.join(path, "bin", "OhioErosion", "Flows", "region_05.csv"),
+    "scenario_dir": os.path.join(path, "bin", "OhioErosion", "Scenarios", "Pickled"),
+    "recipe_path": FilePath(os.path.join(path, "bin", "OhioErosion", "Recipes"), "recipe_(\d+?)_cdl(\d{4}).txt"),
+    "hydro_path": FilePath(os.path.join(path, "bin", "OhioErosion", "Hydro"), "{}_hydro.txt"),
+    "output_path":
+        FilePath(os.path.join(path, "bin", "Outputs", "Python", "ErosionTest", "With"), "Eco_{}_{}_daily.out"),
+
+    # Time of Travel
+    "lakefile_path": FilePath(os.path.join(path, "bin", "Preprocessed", "LakeFiles"), "region_{}_v3.csv"),
+    "lentics_path": FilePath(os.path.join(path, "bin", "Preprocessed", "UpstreamFromLakes"), "region_{}.p"),
+    "upstream_path": FilePath(os.path.join(path, "bin", "Preprocessed", "UpstreamPaths"), "upstream_{}.p"),
+    "sam_output_path": FilePath(os.path.join(path, "bin", "Preprocessed", "OutputCubes"), "output_{}.p"),
+    "tot_output_path": FilePath(os.path.join(path, "bin", "Outputs", "Convolution"), "{}_{}_{}.csv")
 }
 
 date_params = {
     "hydro_start": datetime.date(1961, 1, 1),
     "scenario_start": datetime.date(1961, 1, 1)
 }
+
 # To be added to input file
 to_be_added_params = {
         # Hardwired stuff to get added to the front end
-        "years": [2010, 2011, 2012, 2013],
-        "process_benthic": False,
-        "process_erosion": False,
-        "write_daily_files": True,
+        "years": [2010, 2011, 2012, 2013], # JCH - replace
+        "process_benthic": True,
+        "process_erosion": True,
+        "write_daily_files": False,
         "convolution": False,
-        "cropstage": 2,  # JCH - replace
-        "stagedays": 14,
-        "stageflag": 2, # JCH - replace
-        "appnumrec_init": 0  # JCH - replace,
-    
+        "cropstage": 2,             # JCH - replace
+        "stagedays": 14,            # JCH - replace
+        "stageflag": 2,             # JCH - replace
+        "appnumrec_init": 0         # JCH - replace
 }
+
+# Tool will fail if flow file header does not follow this format
+flow_header = ["Length"]
+flow_header += ["Q_" + str(m).zfill(2) for m in list(range(1, 13)) + ['MA']]
+flow_header += ["V_" + str(m).zfill(2) for m in list(range(1, 13)) + ['MA']]
 
 starting_dates = ParameterSet(date_params)
 plant = ParameterSet(plant_params)
@@ -89,3 +108,4 @@ water_column = ParameterSet(water_column_params)
 benthic = ParameterSet(benthic_params)
 stream_channel = ParameterSet(stream_channel_params)
 paths = ParameterSet(path_params)
+time_of_travel = ParameterSet(time_of_travel_params)

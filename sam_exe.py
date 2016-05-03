@@ -1,7 +1,4 @@
-import logging
-import os.path
 import pandas as pd
-import sys
 #find parent directory and import base (travis)
 #parentddir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
 #sys.path.append(parentddir)

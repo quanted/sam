@@ -130,8 +130,8 @@ def main():
     pct_tolerance = 0.1
     raw_tolerance = 0.0001
     fortran_output_dir = r"T:\SAM\Outputs\Fortran"
-    python_output_dir = r"T:\SAM\Outputs\Python"
-    output_dir = r"T:\SAM\Outputs\Comparisons"
+    python_output_dir = r"T:\pySAM\bin\Outputs\Python"
+    output_dir = r"T:\pySAM\bin\Outputs\Comparisons"
     include_first_days = False
 
     python_format = fortran_format = "Eco_(\d+?)_(\d+?)_daily.out"

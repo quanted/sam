@@ -1,187 +1,294 @@
 import math
-import numpy as np
+import sys
 from collections import defaultdict
+import numpy as np
+import pandas as pd
+import copy
+
+from Tool import read, write
+from Tool.parameters import time_of_travel as tot
 
 
-def bin_reaches(upstream_paths, upstream_times, interval=1, round_down=True):
-    # Divide lotic reaches into tanks based on travel times
-    round_func = np.int32 if round_down else np.round
-    reach_times = np.array(list(filter(lambda x: x[0] > 0, set(zip(upstream_paths.flat, upstream_times.flat))))).T
-    reach_times[1] = round_func(reach_times[1] / interval) * interval  # Round times to the nearest interval
-    intervals = sorted(np.unique(reach_times[1]))  # Every interval containing reaches
-    tanks = ((tank, list(reach_times[0, reach_times[1] == tank])) for tank in intervals)  # ((ivl, reach),...)
+class ImpulseResponse:
 
-    return tanks
+    def __init__(self):
+        self.common_calls = {}
 
-def classify_reaches(all_reaches, outlet_dict, waterbody_dict):
-    """
-    Classifies reaches as lentic (in a waterbody) or lotic (flowing) and provides a lookup dictionary containing all
-    of the lentic reaches upstream of every reach
-    :param all_reaches: Set containing the reach IDs of all reaches
-    :param outlet_dict: Dictionary containing the outlet reach ID for every water body
-    :param waterbody_dict: Dictionary containing the reaches contained within each waterbody
-    :return: Set of lentic reach IDs, set of lotic reach IDs, dictionary with reach IDs as keys and a set of all
-             upstream lentic reaches as values
-    """
-    all_reaches = set(all_reaches)
+    def make(self, alpha, beta, length, keep=True):
+        key = (alpha, beta, length)
+        out_series = self.common_calls.get(key, np.array([]))
+        if not out_series.any():
+            out_series = self.impulse_response_function(alpha, beta, length)
+            if keep:
+                self.common_calls[key] = out_series
+        return out_series
 
-    # Get a dictionary of all lentic reaches
-    lentic_reach_dict = {}
-    for lake, outlet in outlet_dict.items():
-        for reach in waterbody_dict.get(lake) - {outlet}:
-            lentic_reach_dict[reach] = outlet
-
-    # Identify lentic and lotic reaches
-    lentic_reaches = set(lentic_reach_dict.keys())
-    lotic_reaches = all_reaches - lentic_reaches
-
-    # Get all reaches in the lake for each lake outlet
-    upstream_lentics = defaultdict(set)
-    for reach, outlet in lentic_reach_dict.items():
-        upstream_lentics[outlet].add(reach)
-
-    return lentic_reaches, lotic_reaches, upstream_lentics
+    @staticmethod
+    def impulse_response_function(alpha, beta, length):
+        def gamma_distribution(t, a, b):
+            a, b = map(float, (a, b))
+            tau = a * b
+            return ((t ** (a - 1)) / (((tau / a) ** a) * math.gamma(a))) * math.exp(-(a / tau) * t)
+        return np.array([gamma_distribution(i, alpha, beta) for i in range(length)])
 
 
-def compute_concentration(mass_time_series, runoff_time_series, baseflow):
-    """
-    Divides mass by flow to compute runoff concentrations
-    :param mass_time_series: 1d array containing a time series of pesticide mass
-    :param runoff_time_series: 1d array containing a time series of runoff volume
-    :param baseflow: 1d array containing a time series of baseflow
-    :return: Total flow (sum of baseflow and runoff), pesticide concentration, and pesticide concentration in runoff
-    """
-
-    total_flow = runoff_time_series + baseflow
-    concentration = np.nan_to_num(mass_time_series / total_flow)
-    runoff_conc = np.nan_to_num(mass_time_series / runoff_time_series)
-
-    return total_flow, concentration, runoff_conc
+class Waterbody:
+    def __init__(self, region, comid, name):
+        self.region = region
+        self.id = comid
+        self.name = name
 
 
-def process_flowing(upstream_paths, upstream_times, upstream_output, upstream_lookup, interval=1, convolve=True, diagnose=False):
-    """
-    Apply convolution to flowing reaches
-    :param upstream_paths: 2d array containing all of the flow paths upstream of the active reach
-    :param upstream_times: 2d array containing the reach times that correspond to upstream_paths
-    :param upstream_output: 2d array containing time series of SAM-generated pesticide loads for each reach
-    :param upstream_lookup: A dictionary which provides the row number for each reach in upstream_output
-    :param interval:
-    :return: A 2d array containing a time series of convolved mass and convolved runoff for each reach
-    """
+class Reach(Waterbody):
 
-    # Loop through each tank and perform convolution
-    n_dates = upstream_output.shape[2]
-    output_time_series = np.zeros((2, n_dates))
-    tanks = bin_reaches(upstream_paths, upstream_times, interval) # Divide lotic reaches into tanks based on times
+    def __init__(self, region, reach_id=None, path_address=None, actual_id=None):
 
-    for interval, tank in tanks:  #  Interval: upstream travel time, tank: set of reaches
-        if diagnose:
-            print(0, interval, list(tank))
-        tank_indices = list(filter(lambda x: isinstance(x, int), map(upstream_lookup.get, tank)))
-        if tank_indices:  # Only proceed if tank reaches were found in the local output (they might all be missing)
-            tank_output = upstream_output[:, tank_indices].sum(axis=1)  # Sum up all time series in the tank
-            if interval > 0:
-                if convolve:  # Only perform convolution if timestep is not 0
-                    irf = impulse_response_function(interval + 1, 1, n_dates)  # Get the convolution function
-                    tank_output[0] = np.convolve(tank_output[0], irf)[:n_dates]  # Convolve mass
-                    tank_output[1] = np.convolve(tank_output[1], irf)[:n_dates]  # Convolve runoff
-                else:  # If convolution is off, just offset the time series for the tank.
-                    offset = np.array([0.0] * interval)
-                    tank_output[0] = np.hstack((offset, tank_output[0]))[:n_dates]
-                    tank_output[1] = np.hstack((offset, tank_output[1]))[:n_dates]
+        super(Reach, self).__init__(region, reach_id, actual_id)
+        self.mode = region.mode
+        self.path_address = path_address
+        self.n_dates = region.n_dates
 
-            output_time_series += tank_output  # Add the convolved tank time series to the total for the reach
+        self.wb = 0
+        self.outlet = None
+        self.run = False
 
-    return output_time_series
+        self._type = None
 
+    def aliased(self, alias):
+        new_copy = copy.copy(self)
+        new_copy.name = alias
+        return new_copy
 
-def process_reservoirs(local_output, local_lookup, reach_to_waterbody, local_paths, residence_times):
-    """
-    Convolves the mass and runoff time series for reaches upstream of reservoirs
-    :param local_output: SAM output array trimmed to reaches upstream of the active reach
-    :param local_lookup: Lookup dictionary for matching a reach ID to a row number in the SAM output array
-    :param local_paths:
-    :param local_lakes:
-    :param residence_times:
-    :return:
-    """
+    @staticmethod
+    def compute_concentration(totals, baseflow):
+        mass_time_series, runoff_time_series = totals
+        total_flow = runoff_time_series + baseflow
+        concentration = np.nan_to_num(mass_time_series / total_flow)
+        runoff_concentration = np.nan_to_num(mass_time_series / runoff_time_series)
 
-    n_dates = local_output.shape[2]
+        return total_flow, concentration, runoff_concentration
 
-    # Get every lake upstream of the active reach, and all the reaches upstream of each of those lakes
-    reaches_above_lake = defaultdict(set)
-    upstream_lentics = set(local_lookup.keys()) & set(reach_to_waterbody.keys())  # All lentic reaches upstream of active reach
-    for upstream_lentic in upstream_lentics:
-        lake = reach_to_waterbody[upstream_lentic]  # The lake corresponding to the lentic reach
-        path_indices = np.nonzero(np.any(local_paths == upstream_lentic, axis=1))[0]  # Row nums of all paths containing the reach
-        for path_index in path_indices:
-            full_path = local_paths[path_index]
-            upstream_of_reach = full_path[np.argmax(full_path == upstream_lentic):]
-            reaches_above_lake[lake] |= set(upstream_of_reach)
+    def local_sam(self, upstream_reaches):
+        mass_and_runoff = self.region.sam_output[:2, upstream_reaches]
+        baseflow = self.region.sam_output[2][self.id]
+        return mass_and_runoff, baseflow
 
-    # Convolve each reach upstream of a lake against that lakes's residence time
-    for lake, reaches in reaches_above_lake.items():
-        residence_time = residence_times.get(lake, 0.0)
-        indices = map(local_lookup.get, reaches)
-        if residence_time > 1.5:
-            irf = impulse_response_function(1, residence_time, n_dates)
-            for i in range(2):  # mass and flow
-                local_output[i, indices] = np.convolve(local_output[i, indices], irf)[:n_dates]
+    def local_upstream(self):
 
-    return local_output
+        start_row, end_row, column = self.path_address
 
+        all_reaches = np.int32(self.region.paths[start_row:end_row, column:])
+        all_times = self.region.times[start_row:end_row, column:]
+        start_time = all_times[0, 0]
 
-def impulse_response_function(alpha, beta, length):
-    def gamma_distribution(t, a, b):
-        a, b = map(float, (a, b))
-        tau = a * b
-        return ((t ** (a - 1)) / (((tau / a) ** a) * math.gamma(a))) * math.exp(-(a / tau) * t)
-    return np.array([gamma_distribution(i, alpha, beta) for i in range(length)])
+        addresses = (all_reaches != 0)
+        reaches = all_reaches[addresses]
+        reach_times = all_times[addresses].copy()
+        reach_times -= float(start_time)
+        reach_times = self.region.round_func(reach_times / tot.interval) * tot.interval
 
+        return reaches, reach_times
 
-def preconvolution_report(reach, dates, output_file, upstream_output, baseflow):
+    def upstream_flowing(self, impulse_response, upstream_times, upstream_reaches, mass_and_runoff):
+        """ Get all unique upstream 'daysheds' and match with reaches """
 
-    from Tool import write
+        output_time_series = np.zeros((2, self.n_dates))  # (mass/runoff, dates)
 
-    # Create output directory
-    output_file = output_file.replace("Convolved", "Aggregated")
-    runoff_mass, total_runoff = upstream_output.sum(axis=1)
-    total_flow, total_conc, runoff_conc = compute_concentration(runoff_mass, total_runoff, baseflow)
-    write.daily(output_file.format("aggr", reach), total_conc, runoff_conc, runoff_mass, dates, total_flow, baseflow, total_runoff)
+        # Get all tanks upstream
+        for tank in range(np.max(upstream_times) + 1):
 
+            reaches_in_tank = upstream_reaches[upstream_times == tank]
 
-def trim_to_reach(upstream, start_row, col, start_time, end_row):
+            local_reach_ids = \
+                np.searchsorted(upstream_reaches, reaches_in_tank, side='right')[reaches_in_tank.argsort()] - 1
 
-    # Extract all paths containing the reach in question
-    upstream = np.rollaxis(upstream, 2)  # [(paths, times, lakes), maxpaths, maxlength]
-    local_upstream = upstream[:, start_row:end_row, col:]
-    longest_path = np.argmin((local_upstream[0] > 0), axis=1).max()
-    local_paths, local_times, local_lakes = local_upstream[:,:,:longest_path]
-    adjusted_times = local_times - start_time
+            tank_time_series = mass_and_runoff[:, local_reach_ids].sum(axis=1)
 
-    return local_paths, local_lakes, adjusted_times
+            if tank > 0:
+                if self.mode == "convolved":  # Only perform convolution if timestep is not 0
+                    irf = impulse_response.make(tank + 1, 1, self.n_dates)  # Get the convolution function
+                    tank_time_series[0] = np.convolve(tank_time_series[0], irf)[:self.n_dates]  # Convolve mass
+                    tank_time_series[1] = np.convolve(tank_time_series[1], irf)[:self.n_dates]  # Convolve runoff
+                elif self.mode == "unconvolved":  # If convolution is off, just offset the time series for the tank.
+                    offset = np.zeros((2., tank))
+                    tank_time_series = np.hstack((offset, tank_time_series))[:, :self.n_dates]
+                else:
+                    sys.exit("Invalid convolution mode: {}".format(self.mode))
+            output_time_series += tank_time_series  # Add the convolved tank time series to the total for the reach
+
+        return output_time_series
+
+    def process(self, irf, output_path=None, output_id=None, write_to_file=False):
+
+        upstream_reaches, upstream_times = self.local_upstream()
+
+        mass_and_runoff, baseflow = self.local_sam(upstream_reaches)
+
+        if self.mode in ("convolved", "unconvolved"):
+            totals = self.upstream_flowing(irf, upstream_times, upstream_reaches, mass_and_runoff)
+        elif self.mode == "aggregated":
+            totals = np.sum(mass_and_runoff, axis=1)
+        else:
+            sys.exit("Invalid processing mode {}".format(self.mode))
+
+        total_flow, concentration, runoff_conc = self.compute_concentration(totals, baseflow)
+
+        if write_to_file:
+            write.daily_tot(output_path, output_id, self.name, self.mode, self.region.dates,
+                            total_flow, totals, baseflow, concentration, runoff_conc)
+
+        self.run = True
 
 
-def trim_to_upstream(sam_output, sam_lookup, upstream_paths):
+class Reservoir(Waterbody):
+    def __init__(self, region, comid, name, max_flow, outlet, volume, residence_time):
+        super(Reservoir, self).__init__(region, comid, name)
+        self.max_flow = max_flow
+        self.outlet = outlet
+        self.volume = volume
+        self.residence_time = residence_time
 
-    all_upstream = set(np.unique(upstream_paths))
+        self.upstream_reaches = np.array([], dtype=np.int32)
 
-    # Check for missing output
-    missing = all_upstream - set(sam_lookup.keys())
-    if missing:
-        #print("Missing SAM output for {} of {} upstream reaches".format(len(missing), len(all_upstream)))
-        pass
-    all_upstream = all_upstream & set(sam_lookup.keys())
-    indices, reaches = zip(*sorted(((sam_lookup.get(reach), reach) for reach in all_upstream), key=lambda x: x[0]))
-    local_lookup = dict(((reach, i) for i, reach in enumerate(reaches)))
-    local_output = np.copy(sam_output[[[0], [1]], indices])
+    def process(self, impulse_response, convolve_runoff=False):
+        """Convolve each reach upstream of a reservoir"""
 
-    return local_output, local_lookup
+        # Impulse response function for reservoir
+        irf = impulse_response.make(1, self.residence_time, self.region.n_dates)
 
-def report_progress(i, n_reaches, ivl=50):
-    if not ((i + 1) % ivl):
-        print("{}/{}".format(i + 1, n_reaches))
+        for reach_id in self.upstream_reaches:
+            self.region.sam_output[0, reach_id] = \
+                np.convolve(self.region.sam_output[0, reach_id], irf)[:self.region.n_dates]
+            if convolve_runoff:
+                self.region.sam_output[1, reach_id] = \
+                    np.convolve(self.region.sam_output[0, reach_id], irf)[:self.region.n_dates]
+            else:
+                mean_runoff = np.mean(self.region.sam_output[0, reach_id])
+                self.region.sam_output[1, reach_id] = np.repeat(mean_runoff, self.region.n_dates)
 
-if __name__ == "__main__":
-    print("This is a library. Run travel_time.py")
+
+class Region:
+
+    def __init__(self, mode, region_id, sam_output_id, lakefile_path, lentics_path, sam_output_path, upstream_path):
+
+        # Set convolution mode
+        self.mode = mode
+
+        # Read in upstream paths
+        self.paths, self.times, self.path_map, self.conversion_dict = read.unpickle(upstream_path.format(region_id))
+
+        # Backward conversion dict
+        self.convert_back = dict(zip(self.conversion_dict.values(), self.conversion_dict.keys()))
+
+        # Read in compressed SAM output, lake file, and upstream path data
+        self.sam_output, self.dates = self.read_sam_output(sam_output_path.format(sam_output_id))
+
+        # Populate reach index
+        self.reaches = self.map_reaches()
+
+        # Read in data from lake file
+        self.waterbodies, self.wb_lookup, self.wb_conversion = self.read_lake_file(lakefile_path.format(region_id))
+
+        # Upstream lentics
+        self.read_upstream_lentics(lentics_path.format(region_id))
+
+        # Set whether travel times will be rounded up or down to the nearest day
+        self.round_func = np.int32 if tot.round_down else np.round
+
+    def cascade(self):
+
+        # Sort lakes into bins based on how many lakes lie upstream
+        lake_bins = defaultdict(set)
+        for lake in self.waterbodies.values():
+            upstream_lakes = self.wb_lookup[lake.upstream_reaches]
+            lake_bins[len(upstream_lakes)].add(lake)
+
+        # Loop through each lake in each bin
+        for _, lakes in sorted(lake_bins.items()):
+            for lake in lakes:
+                for reach_id in lake.upstream_reaches:
+                    reach = self.reaches.get(reach_id)
+                    if reach:
+                        yield reach
+                    else:
+                        print("Can't find reach {}".format(reach_id))
+                yield lake
+
+        # Loop through reaches that have not yet been run (ostensibly those not upstream of any lake
+        remaining_reaches = filter(lambda x: not x.run, self.reaches.values())
+        for reach in remaining_reaches:
+            yield reach
+
+    def map_reaches(self):
+
+        reaches = {}
+
+        # Populate reach index
+        for reach_id in self.path_map.keys():
+            path_address = self.path_map.get(reach_id)
+            actual_id = self.convert_back.get(reach_id)
+            reaches[reach_id] = Reach(self, reach_id, path_address, actual_id)
+        reaches.pop(0, None)
+
+        return reaches
+
+    def read_lake_file(self, lake_file):
+
+        # Read table from file
+        waterbody_table = pd.read_csv(lake_file, header=0).as_matrix()
+
+        # Trim table to lakes that exceed the minimum residence time
+        residence_time_col = 5
+        active_lakes = (waterbody_table[:, residence_time_col] >= tot.minimum_residence_time)
+        waterbody_table = waterbody_table[active_lakes, :]
+
+        # 1-d array where waterbody_lookup[reach_id] = waterbody_id
+        waterbody_lookup = np.zeros(max(self.reaches.keys()) + 1, dtype=np.int32)
+
+        # Dictionary where waterbody_conversion[comid] = row num in waterbody_table
+        # JCH - maybe get rid of this in future versions
+        waterbody_conversion = dict(zip(waterbody_table[:, 0], range(waterbody_table.shape[0])))
+
+        # Dictionary where waterbody_dict[row_num] = Reservoir object
+        waterbody_dict = {}
+        for i, waterbody in enumerate(waterbody_table):
+            comid, reaches, maxflow, outlet_id, volume, residence_time = waterbody
+            outlet_id = self.conversion_dict.get(outlet_id)
+            new_waterbody = Reservoir(self, i, comid, maxflow, outlet_id, volume, residence_time)
+            waterbody_dict[i] = new_waterbody
+            for reach_id in map(int, reaches.split(",")):
+                reach_alias = self.conversion_dict.get(reach_id)
+                reach = self.reaches.get(reach_alias)
+                if reach:
+                    waterbody_lookup[reach_alias] = i
+                    self.reaches[reach_alias].wb = new_waterbody
+
+        return waterbody_dict, waterbody_lookup, waterbody_conversion
+
+    def read_sam_output(self, sam_output_file):
+
+        output_matrix, lookup_dict, dates = read.unpickle(sam_output_file)
+
+        # Rearrange output matrix such that the row number corresponds to the reach alias
+        # JCH - can we do this in preprocessing?
+        max_reach_id = max(self.conversion_dict.values())
+        new_matrix = np.zeros((3, max_reach_id + 1, output_matrix.shape[2]))  # n_dates
+        for comid, row_num in lookup_dict.items():
+            alias = self.conversion_dict.get(comid)
+            if alias:
+                new_matrix[:, alias, :] = output_matrix[:, row_num, :]
+
+        return new_matrix, dates
+
+    def read_upstream_lentics(self, lentics_file):
+        data = read.unpickle(lentics_file)
+        for waterbody, upstream_reaches in data.items():
+            wb_index = self.wb_conversion.get(int(waterbody))
+            if wb_index:
+                convert = np.vectorize(lambda x: self.conversion_dict.get(x, 0))
+                upstream_ids = np.unique(convert(list(upstream_reaches)))
+                self.waterbodies[wb_index].upstream_reaches = np.int32(upstream_ids[upstream_ids > 0], dtype=np.int32)
+
+    @property
+    def n_dates(self):
+        return self.sam_output.shape[2]
