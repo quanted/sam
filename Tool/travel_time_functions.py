@@ -89,6 +89,27 @@ class Reach(Waterbody):
 
         return reaches, reach_times
 
+    def process(self, irf, output_path=None, output_id=None, write_to_file=False):
+
+        upstream_reaches, upstream_times = self.local_upstream()
+
+        mass_and_runoff, baseflow = self.local_sam(upstream_reaches)
+
+        if self.mode in ("convolved", "unconvolved"):
+            totals = self.upstream_flowing(irf, upstream_times, upstream_reaches, mass_and_runoff)
+        elif self.mode == "aggregated":
+            totals = np.sum(mass_and_runoff, axis=1)
+        else:
+            sys.exit("Invalid processing mode {}".format(self.mode))
+
+        total_flow, concentration, runoff_conc = self.compute_concentration(totals, baseflow)
+
+        if write_to_file:
+            write.daily_tot(output_path, output_id, self.name, self.mode, self.region.dates,
+                            total_flow, totals, baseflow, concentration, runoff_conc)
+
+        self.run = True
+
     def upstream_flowing(self, impulse_response, upstream_times, upstream_reaches, mass_and_runoff):
         """ Get all unique upstream 'daysheds' and match with reaches """
 
@@ -114,30 +135,10 @@ class Reach(Waterbody):
                     tank_time_series = np.hstack((offset, tank_time_series))[:, :self.n_dates]
                 else:
                     sys.exit("Invalid convolution mode: {}".format(self.mode))
+
             output_time_series += tank_time_series  # Add the convolved tank time series to the total for the reach
 
         return output_time_series
-
-    def process(self, irf, output_path=None, output_id=None, write_to_file=False):
-
-        upstream_reaches, upstream_times = self.local_upstream()
-
-        mass_and_runoff, baseflow = self.local_sam(upstream_reaches)
-
-        if self.mode in ("convolved", "unconvolved"):
-            totals = self.upstream_flowing(irf, upstream_times, upstream_reaches, mass_and_runoff)
-        elif self.mode == "aggregated":
-            totals = np.sum(mass_and_runoff, axis=1)
-        else:
-            sys.exit("Invalid processing mode {}".format(self.mode))
-
-        total_flow, concentration, runoff_conc = self.compute_concentration(totals, baseflow)
-
-        if write_to_file:
-            write.daily_tot(output_path, output_id, self.name, self.mode, self.region.dates,
-                            total_flow, totals, baseflow, concentration, runoff_conc)
-
-        self.run = True
 
 
 class Reservoir(Waterbody):
@@ -200,10 +201,10 @@ class Region:
         # Sort lakes into bins based on how many lakes lie upstream
         lake_bins = defaultdict(set)
         for lake in self.waterbodies.values():
-            upstream_lakes = self.wb_lookup[lake.upstream_reaches]
-            lake_bins[len(upstream_lakes)].add(lake)
+            upstream_lakes = np.unique(self.wb_lookup[lake.upstream_reaches])
+            upstream_lakes = upstream_lakes[(upstream_lakes > 0) & (upstream_lakes != lake.id)]
+            lake_bins[upstream_lakes.size].add(lake)
 
-        # Loop through each lake in each bin
         for _, lakes in sorted(lake_bins.items()):
             for lake in lakes:
                 for reach_id in lake.upstream_reaches:
@@ -292,3 +293,7 @@ class Region:
     @property
     def n_dates(self):
         return self.sam_output.shape[2]
+
+
+def gis_it(comids, field="COMID"):
+    print("\"{}\" = ".format(field) + " OR \"{}\" = ".format(field).join(map(str, comids)))

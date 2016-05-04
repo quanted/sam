@@ -4,10 +4,12 @@ from Tool import travel_time_functions as functions
 
 # To do:
 # * stream_calc = 0
-# * benthic
+# * benthic transport
 # * migrate read functions to read.py?
 
+
 def time_of_travel(input_data):
+
     inputs = read.InputParams(input_data, mode="TimeOfTravel")
 
     region = functions.Region(inputs.mode, inputs.region, inputs.sam_output_id,
@@ -21,7 +23,7 @@ def time_of_travel(input_data):
     for waterbody in region.cascade():
 
         if type(waterbody) == functions.Reach:
-            waterbody.process(irf, p.tot_output_path, inputs.sam_output_id, write_to_file, diagnose=False)
+            waterbody.process(irf, p.tot_output_path, inputs.sam_output_id, write_to_file)
 
         elif type(waterbody) == functions.Reservoir:
             waterbody.process(irf)
@@ -40,7 +42,7 @@ def main(input_data=None):
 
 
 def batch_compare():
-    for mode in ("convolved", "unconvolved", "aggregated"):
+    for mode in ("unconvolved", "aggregated"):
         try:
             main({"inputs": {"mode": mode, "region": "07", "sam_output_id": "dummy_region_07"}})
         except Exception as e:
@@ -48,8 +50,8 @@ def batch_compare():
 
 
 if __name__ == "__main__":
-    time_it = True
-    batch_compare_on = False
+    time_it = False
+    batch_compare_on = True
     if time_it:
         import cProfile
         cProfile.run('main()')

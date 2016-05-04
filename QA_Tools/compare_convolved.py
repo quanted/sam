@@ -39,9 +39,9 @@ def write_outfile(comparison, outfile):
 
 def main():
     run_id = "dummy_region_07_{}_{}.csv"
-    convolution_dir = r"T:\pySAM\bin\Outputs\ConvolutionNew"
+    convolution_dir = r"T:\pySAM\bin\Outputs\Convolution"
     output_dir = r"T:\pySAM\bin\Outputs\Comparisons"
-    comparison_id = "mtb_compare2"
+    comparison_id = "mtb_compare4"
 
     outfile = os.path.join(output_dir, comparison_id + ".csv")
 
@@ -54,8 +54,8 @@ def main():
     mtb_headwater = 5038604
     mtb_midwater = 5041748
 
-    reaches_to_compare = [outlet_of_outlets, mtb_outlet, mtb_headwater, mtb_midwater]
-    methods_to_compare = ["convolved"]
+    reaches_to_compare = [mtb_outlet, mtb_midwater, mtb_headwater]
+    methods_to_compare = ["convolved", "unconvolved", "aggregated"]
 
     file_map = map_files(run_id, convolution_dir, reaches_to_compare, methods_to_compare)
     comparison = compare_files(file_map)
