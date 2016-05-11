@@ -353,6 +353,13 @@ def unpickle(fp):
         return output
 
 
+def upstream(path):
+    pt = np.load(path)
+    paths, times, path_map, convert = (pt[key] for key in ('paths', 'times', 'path_map', 'conversion_array'))
+    conversion_dict = dict(zip(list(convert), range(convert.size)))
+    return paths, times, path_map, conversion_dict
+
+
 def verify_header(template, header):
     differences = [d for d in zip(template, header) if d[0] != d[1]]
     if any(differences):

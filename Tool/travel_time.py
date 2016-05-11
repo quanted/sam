@@ -2,11 +2,12 @@ from Tool import read
 from Tool.parameters import paths as p
 from Tool import travel_time_functions as functions
 
+from threading import Thread
+
 # To do:
 # * stream_calc = 0
 # * benthic transport
 # * migrate read functions to read.py?
-
 
 def time_of_travel(input_data):
 
@@ -20,13 +21,19 @@ def time_of_travel(input_data):
     write_to_file = True  # Included primarily for diagnostic purposes to limit output
 
     # Loop through all reservoirs in cascading order
-    for waterbody in region.cascade():
+    for reaches, lake in region.cascade():
 
-        if type(waterbody) == functions.Reach:
-            waterbody.process(irf, p.tot_output_path, inputs.sam_output_id, write_to_file)
+        threads = [Thread(target=reach.process, args=(irf, p.tot_output_path, inputs.sam_output_id, write_to_file))
+                   for reach in reaches]
 
-        elif type(waterbody) == functions.Reservoir:
-            waterbody.process(irf)
+        for thread in threads:
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+
+        if lake:
+            lake.process(irf)
 
 
 def main(input_data=None):
@@ -50,8 +57,8 @@ def batch_compare():
 
 
 if __name__ == "__main__":
-    time_it = False
-    batch_compare_on = True
+    time_it = True
+    batch_compare_on = False
     if time_it:
         import cProfile
         cProfile.run('main()')

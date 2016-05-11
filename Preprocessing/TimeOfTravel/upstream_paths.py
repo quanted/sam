@@ -80,8 +80,45 @@ def get_nodes(flow_table, vaa_table):
     connecting_nodes = nodes[(sc_nodes[:,0] == True) & (sc_nodes[:, 1] == False)]
     passive_nodes = nodes[node_sums == 0]
 
+    return active_nodes, connecting_nodes, passive_nodes, nodes, conversion_dict
 
-    return active_nodes, connecting_nodes, passive_nodes, conversion_dict
+
+def append_stragglers(master_path, master_times, path_map, connectors, passive_nodes, time_dict, conversion_dict):
+    straggler_dict = defaultdict(list)
+    for connector in connectors:
+        origin, outlet = connector  # Outlet is the sc0 reach, origin is the sc1 reach it connects to
+        paths, times = snapshot(passive_nodes, [outlet], time_dict)
+        addresses = (paths != 0)
+        all_reaches = paths[addresses]
+        all_times = times[addresses]
+        straggler_dict[origin] += zip(all_reaches, all_times)
+
+
+    for origin, upstream_times in straggler_dict.items():
+        outlet_address = path_map[origin]
+
+
+        if outlet_address.any():
+            start_row, end_row, col = outlet_address
+            outlet_start_time = master_times[start_row, col]
+            column_numbers = (np.arange(master_path[start_row].size) + 1) * (master_path[start_row] > 0)
+            start_cursor = np.argmax(column_numbers) + 1
+            time_dict = dict(sorted(upstream_times, key=lambda x: x[1], reverse=True))
+            n_reaches = len(time_dict.items())
+
+            try:
+                master_path[start_row, start_cursor: start_cursor + n_reaches] = \
+                    np.array([list(map(int, time_dict.keys()))])
+                master_times[start_row, start_cursor: start_cursor + n_reaches] = \
+                    np.array([list(time_dict.values()) + outlet_start_time])
+
+            except Exception as e:
+                print(e)
+                print(n_reaches)
+                abra
+        else:
+            print("{} not found".format(origin))
+    return master_path, master_times
 
 
 def map_paths(paths):
@@ -89,8 +126,8 @@ def map_paths(paths):
     # Get starting row and column for each value
     column_numbers = np.tile(np.arange(paths.shape[1]) + 1, (paths.shape[0], 1)) * (paths > 0)
     path_begins = np.argmax(column_numbers > 0, axis=1)
-
-    path_map = defaultdict(list)
+    max_reach = np.max(paths)
+    path_map = np.zeros((max_reach + 1, 3))
     n_paths = paths.shape[0]
     for i, path in enumerate(paths):
         for j, val in enumerate(path):
@@ -103,7 +140,8 @@ def map_paths(paths):
                         end_row = np.argmax(next_row)
                     else:
                         end_row = n_paths - i - 1
-                path_map[val] = (i, i + end_row + 1, j)
+                values = np.array([i, i + end_row + 1, j])
+                path_map[val] = values
 
     return path_map
 
@@ -132,16 +170,25 @@ def get_times(all_nodes, q_table, vaa_table, conversion_dict):
     return time_dict
 
 
-def write_to_outfiles(output_dir, region, paths, times, path_map, conversion_dict):
-    outfile = os.path.join(output_dir, "upstream_{}.p".format(region))
-    with open(outfile, 'wb') as f:
-        pickle.dump((paths, times, path_map, conversion_dict), f)
+def write_to_outfiles(output_dir, region, paths, times, path_map, conversion_array):
 
+    outfile = os.path.join(output_dir, "upstream_{}.npz".format(region))
+    np.savez_compressed(outfile, paths=paths, times=times, path_map=path_map, conversion_array=conversion_array)
 
 def trim_paths(paths):
-    longest_path = np.max(paths.nonzero()[1])
+    column_numbers = np.tile(np.arange(paths.shape[1]) + 1, (paths.shape[0], 1)) * (paths > 0)
+    path_ends = np.argmax(column_numbers, axis=1)
+    longest_path = np.max(path_ends)
+    print(list(path_ends))
+    abra
     return paths[:, :longest_path]
 
+def dict_to_array(cd):
+    max_alias = max(cd.values())
+    out_array = np.zeros(max_alias + 1)
+    for comid, alias in cd.items():
+        out_array[alias] = comid
+    return out_array
 
 def create_upstream_paths(nhd_dir, output_directory, region_filter='all'):
 
@@ -156,12 +203,24 @@ def create_upstream_paths(nhd_dir, output_directory, region_filter='all'):
             q_table = os.path.join(region_dir, "EROMExtension", "EROM_MA0001.dbf")
 
             # Do the work
-            active_nodes, connectors, passive_nodes, conversion_dict = get_nodes(flow_table, vaa_table)
-            time_dict = get_times(active_nodes, q_table, vaa_table, conversion_dict)
+            print(1)
+            active_nodes, connectors, passive_nodes, all_nodes, conversion_dict = get_nodes(flow_table, vaa_table)
+            print(2)
+            time_dict = get_times(all_nodes, q_table, vaa_table, conversion_dict)
+            print(3)
             outlets = get_outlets(flow_table, flow_lines, vaa_table, conversion_dict)
+            print(4)
             paths, times = snapshot(active_nodes, outlets, time_dict)
+            print(5)
             path_map = map_paths(paths)
-            write_to_outfiles(output_directory, region, paths, times, path_map, conversion_dict)
+            print(6)
+            conversion_array = dict_to_array(conversion_dict)
+            print(6.5)
+            paths, times = append_stragglers(paths, times, path_map, connectors, passive_nodes, time_dict, conversion_dict)
+            print(7)
+            #paths = trim_paths(paths)
+            #times = times[:paths.shape[0], :paths.shape[1]]
+            write_to_outfiles(output_directory, region, paths, times, path_map, conversion_array)
 
 
 def main():

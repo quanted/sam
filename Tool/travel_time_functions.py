@@ -78,7 +78,9 @@ class Reach(Waterbody):
         start_row, end_row, column = self.path_address
 
         all_reaches = np.int32(self.region.paths[start_row:end_row, column:])
+
         all_times = self.region.times[start_row:end_row, column:]
+
         start_time = all_times[0, 0]
 
         addresses = (all_reaches != 0)
@@ -176,7 +178,7 @@ class Region:
         self.mode = mode
 
         # Read in upstream paths
-        self.paths, self.times, self.path_map, self.conversion_dict = read.unpickle(upstream_path.format(region_id))
+        self.paths, self.times, self.path_map, self.conversion_dict = read.upstream(upstream_path.format(region_id))
 
         # Backward conversion dict
         self.convert_back = dict(zip(self.conversion_dict.values(), self.conversion_dict.keys()))
@@ -205,30 +207,25 @@ class Region:
             upstream_lakes = upstream_lakes[(upstream_lakes > 0) & (upstream_lakes != lake.id)]
             lake_bins[upstream_lakes.size].add(lake)
 
-        for _, lakes in sorted(lake_bins.items()):
+        for lake_bin, lakes in sorted(lake_bins.items()):
+            print(lake_bin)
             for lake in lakes:
-                for reach_id in lake.upstream_reaches:
-                    reach = self.reaches.get(reach_id)
-                    if reach:
-                        yield reach
-                    else:
-                        print("Can't find reach {}".format(reach_id))
-                yield lake
+                reaches = filter(None, map(self.reaches.get, lake.upstream_reaches))
+                yield reaches, lake
 
         # Loop through reaches that have not yet been run (ostensibly those not upstream of any lake
         remaining_reaches = filter(lambda x: not x.run, self.reaches.values())
-        for reach in remaining_reaches:
-            yield reach
+        yield remaining_reaches, None
 
     def map_reaches(self):
 
         reaches = {}
 
         # Populate reach index
-        for reach_id in self.path_map.keys():
-            path_address = self.path_map.get(reach_id)
-            actual_id = self.convert_back.get(reach_id)
-            reaches[reach_id] = Reach(self, reach_id, path_address, actual_id)
+        for reach_id, path_address in enumerate(self.path_map):
+            if reach_id and path_address.any():
+                actual_id = self.convert_back.get(reach_id)
+                reaches[reach_id] = Reach(self, reach_id, path_address, actual_id)
         reaches.pop(0, None)
 
         return reaches

@@ -72,7 +72,7 @@ path_params = {
     # Time of Travel
     "lakefile_path": FilePath(os.path.join(path, "bin", "Preprocessed", "LakeFiles"), "region_{}_v3.csv"),
     "lentics_path": FilePath(os.path.join(path, "bin", "Preprocessed", "UpstreamFromLakes"), "region_{}.p"),
-    "upstream_path": FilePath(os.path.join(path, "bin", "Preprocessed", "UpstreamPaths"), "upstream_{}.p"),
+    "upstream_path": FilePath(os.path.join(path, "bin", "Preprocessed", "UpstreamPaths"), "upstream_{}.npz"),
     "sam_output_path": FilePath(os.path.join(path, "bin", "Preprocessed", "OutputCubes"), "output_{}.p"),
     "tot_output_path": FilePath(os.path.join(path, "bin", "Outputs", "Convolution"), "{}_{}_{}.csv")
 }
