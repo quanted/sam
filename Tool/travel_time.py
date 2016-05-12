@@ -1,39 +1,36 @@
 from Tool import read
-from Tool.parameters import paths as p
+from Tool.parameters import paths
 from Tool import travel_time_functions as functions
 
-from threading import Thread
 
 # To do:
-# * stream_calc = 0
 # * benthic transport
 # * migrate read functions to read.py?
 
 def time_of_travel(input_data):
 
+    # Object containing input data parameters
     inputs = read.InputParams(input_data, mode="TimeOfTravel")
 
-    region = functions.Region(inputs.mode, inputs.region, inputs.sam_output_id,
-                              p.lakefile_path, p.lentics_path, p.sam_output_path, p.upstream_path)
+    # Output on/off. Included primarily for diagnostic purposes to limit output
+    write_to_file = False
 
+    # Structure which generates and stores impulse response functions
     irf = functions.ImpulseResponse()
 
-    write_to_file = True  # Included primarily for diagnostic purposes to limit output
+    # Initializes a time of travel run for an NHD region
+    region = functions.Region(inputs, paths, irf, write_to_file)
 
-    # Loop through all reservoirs in cascading order
+    # Loop through all reservoirs in a downstream cascade
     for reaches, lake in region.cascade():
 
-        threads = [Thread(target=reach.process, args=(irf, p.tot_output_path, inputs.sam_output_id, write_to_file))
-                   for reach in reaches]
+        # Process reaches upstream of the reservoir
+        for reach in reaches:
+            reach.process()
 
-        for thread in threads:
-            thread.start()
-
-        for thread in threads:
-            thread.join()
-
-        if lake:
-            lake.process(irf)
+        # Process the reservoir
+        if lake:  # Last batch of reaches will not have an associated reservoir
+            lake.process()
 
 
 def main(input_data=None):

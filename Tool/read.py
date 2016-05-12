@@ -356,6 +356,7 @@ def unpickle(fp):
 def upstream(path):
     pt = np.load(path)
     paths, times, path_map, convert = (pt[key] for key in ('paths', 'times', 'path_map', 'conversion_array'))
+    paths = np.int32(paths)
     conversion_dict = dict(zip(list(convert), range(convert.size)))
     return paths, times, path_map, conversion_dict
 

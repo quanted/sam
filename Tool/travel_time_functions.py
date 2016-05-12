@@ -48,6 +48,8 @@ class Reach(Waterbody):
         self.path_address = path_address
         self.n_dates = region.n_dates
 
+        self.n_paths = path_address[1] - path_address[0]
+
         self.wb = 0
         self.outlet = None
         self.run = False
@@ -91,14 +93,14 @@ class Reach(Waterbody):
 
         return reaches, reach_times
 
-    def process(self, irf, output_path=None, output_id=None, write_to_file=False):
+    def process(self):
 
         upstream_reaches, upstream_times = self.local_upstream()
 
         mass_and_runoff, baseflow = self.local_sam(upstream_reaches)
 
         if self.mode in ("convolved", "unconvolved"):
-            totals = self.upstream_flowing(irf, upstream_times, upstream_reaches, mass_and_runoff)
+            totals = self.upstream_flowing(self.region.irf, upstream_times, upstream_reaches, mass_and_runoff)
         elif self.mode == "aggregated":
             totals = np.sum(mass_and_runoff, axis=1)
         else:
@@ -106,8 +108,8 @@ class Reach(Waterbody):
 
         total_flow, concentration, runoff_conc = self.compute_concentration(totals, baseflow)
 
-        if write_to_file:
-            write.daily_tot(output_path, output_id, self.name, self.mode, self.region.dates,
+        if self.region.write_to_file:
+            write.daily_tot(self.region.output_path, self.region.id, self.name, self.mode, self.region.dates,
                             total_flow, totals, baseflow, concentration, runoff_conc)
 
         self.run = True
@@ -153,11 +155,11 @@ class Reservoir(Waterbody):
 
         self.upstream_reaches = np.array([], dtype=np.int32)
 
-    def process(self, impulse_response, convolve_runoff=False):
+    def process(self, convolve_runoff=False):
         """Convolve each reach upstream of a reservoir"""
 
         # Impulse response function for reservoir
-        irf = impulse_response.make(1, self.residence_time, self.region.n_dates)
+        irf = self.region.irf.make(1, self.residence_time, self.region.n_dates)
 
         for reach_id in self.upstream_reaches:
             self.region.sam_output[0, reach_id] = \
@@ -172,28 +174,38 @@ class Reservoir(Waterbody):
 
 class Region:
 
-    def __init__(self, mode, region_id, sam_output_id, lakefile_path, lentics_path, sam_output_path, upstream_path):
+    def __init__(self, inputs, paths, irf, write_to_file=True):
 
+        # irf, output_path, output_id, write_to_file
         # Set convolution mode
-        self.mode = mode
+
+        self.id = inputs.region
+
+        self.irf = irf
+
+        self.mode = inputs.mode
+
+        self.write_to_file = write_to_file
+
+        self.output_path = paths.tot_output_path
 
         # Read in upstream paths
-        self.paths, self.times, self.path_map, self.conversion_dict = read.upstream(upstream_path.format(region_id))
+        self.paths, self.times, self.path_map, self.conversion_dict = read.upstream(paths.upstream_path.format(self.id))
 
         # Backward conversion dict
         self.convert_back = dict(zip(self.conversion_dict.values(), self.conversion_dict.keys()))
 
         # Read in compressed SAM output, lake file, and upstream path data
-        self.sam_output, self.dates = self.read_sam_output(sam_output_path.format(sam_output_id))
+        self.sam_output, self.dates = self.read_sam_output(paths.sam_output_path.format(inputs.sam_output_id))
 
         # Populate reach index
         self.reaches = self.map_reaches()
 
         # Read in data from lake file
-        self.waterbodies, self.wb_lookup, self.wb_conversion = self.read_lake_file(lakefile_path.format(region_id))
+        self.waterbodies, self.wb_lookup, self.wb_conversion = self.read_lake_file(paths.lakefile_path)
 
         # Upstream lentics
-        self.read_upstream_lentics(lentics_path.format(region_id))
+        self.read_upstream_lentics(paths.lentics_path)
 
         # Set whether travel times will be rounded up or down to the nearest day
         self.round_func = np.int32 if tot.round_down else np.round
@@ -230,7 +242,9 @@ class Region:
 
         return reaches
 
-    def read_lake_file(self, lake_file):
+    def read_lake_file(self, lakefile_path):
+
+        lake_file = lakefile_path.format(self.id)
 
         # Read table from file
         waterbody_table = pd.read_csv(lake_file, header=0).as_matrix()
@@ -278,7 +292,8 @@ class Region:
 
         return new_matrix, dates
 
-    def read_upstream_lentics(self, lentics_file):
+    def read_upstream_lentics(self, lentics_path):
+        lentics_file = lentics_path.format(self.id)
         data = read.unpickle(lentics_file)
         for waterbody, upstream_reaches in data.items():
             wb_index = self.wb_conversion.get(int(waterbody))
