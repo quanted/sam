@@ -1,7 +1,28 @@
 import math
+
 import numpy as np
 
+class ConvolutionArray:
+    def __init__(self):
+        self.counter = 0
+        self.initialized = False
 
+        self.array = np.array([])
+        self.lookup_dict = None
+
+    def initialize(self, n_recipes, n_dates):
+        self.array = np.zeros((3, n_recipes + 1, n_dates))
+        self.initialized = True
+
+    def update(self, recipe_id, mass, runoff, baseflow):
+        self.array[0, self.counter] = mass
+        self.array[1, self.counter] = runoff
+        self.array[2, self.counter] = baseflow
+        self.counter += 1
+
+    def write_to_file(self, outfile_path):
+
+        np.savez_compressed(outfile_path, mass=self.array[0], runoff=self.array[1], baseflow=self.array[2])
 
 
 def applications(i, scenario):
@@ -12,8 +33,8 @@ def applications(i, scenario):
     from Tool.parameters import soil, plant
 
     def application_dates():
-        # Predicts the dates of pesticide application based on crop stage
 
+        # Predicts the dates of pesticide application based on crop stage
         cumulative_maturity = np.int16((scenario.plant_factor == 1).cumsum())
         overcount = np.maximum.accumulate(cumulative_maturity * (scenario.plant_factor == 0))
         count_mature = np.concatenate(([0], (cumulative_maturity - overcount)[:-1]))
@@ -25,10 +46,6 @@ def applications(i, scenario):
         mature_dates = harvest_dates - count_mature[harvest_dates]
 
         return {1: plant_dates, 2: emergence_dates, 3: mature_dates, 4: harvest_dates}[i.cropstage]
-
-    def days_since(a):
-        # Creates a 1d array that counts the number of days since the last positive value
-        return np.arange(len(a)) - np.hstack(([0.0], np.maximum.accumulate(np.arange(len(a)) * (a > 0))[:-1]))
 
     count = 0
     application_mass = np.zeros(len(i.dates))  # Longer than it needs to be, but won't be totally filled anyway
@@ -52,7 +69,7 @@ def applications(i, scenario):
         day_of_application[count:count + full_window] = np.arange(full_window) + date + (multiplier * i.stagedays) - 1
         count += full_window
 
-    daily_mass, daily_method = np.zeros(scenario.size),  np.zeros(scenario.size)
+    daily_mass, daily_method = np.zeros(scenario.size), np.zeros(scenario.size)
     daily_mass[day_of_application] = application_mass
 
     if i.application_method == 1:  # Soil application
@@ -63,7 +80,11 @@ def applications(i, scenario):
         canopy_to_soil = daily_mass - retained_by_canopy
         canopy_to_soil_days = np.where(canopy_to_soil + scenario.rain > 0)[0]
         pesticide_mass_soil = canopy_to_soil * soil.distrib_2cm
-        degradation = np.exp(-days_since(scenario.rain + canopy_to_soil) * plant.foliar_degradation)
+        additions = scenario.rain + canopy_to_soil
+        days_since_addition = \
+            np.arange(len(additions)) - \
+            np.hstack(([0.0], np.maximum.accumulate(np.arange(len(additions)) * (additions > 0))[:-1]))
+        degradation = np.exp(-days_since_addition * plant.foliar_degradation)
         washoff = np.exp(-scenario.rain * plant.washoff_coeff)
         canopy_mass = 0.0
         for day in canopy_to_soil_days:
@@ -104,23 +125,24 @@ def transport(pesticide_mass_soil, scenario, i):
 
     # Compute the mass of pesticide in runoff
     runoff_mass[leach_dates] = \
-        (((total_mass / retardation / soil.delta_x) / deg_total) * (1 - degradation_rate) * runoff)[
-            leach_dates]  # conc[kg/m3]*[m] = kg/m2
+        (((total_mass / retardation / soil.delta_x) / deg_total) * (1 - degradation_rate) * runoff)[leach_dates]  # conc[kg/m3]*[m] = kg/m2
 
     # Compute the mass of pesticide from erosion
     if i.process_erosion:
-        enrich = math.exp(2.0 - (0.2 * math.log10(scenario.erosion)))
+        log_erosion = np.zeros(scenario.erosion.shape)
+        log_erosion[scenario.erosion > 0.0] = scenario.erosion[scenario.erosion > 0.0]
+        enrich = np.exp(2.0 - (0.2 * log_erosion))
         erosion_intensity = soil.erosion_effic / soil.soil_depth  # Assume uniform extraction, no decline, MMF
         enriched_eroded_mass = (scenario.erosion / 100000.) * enrich  # kg/ha -> g/cm2 (kg/ha*(ha/10000 m2)(1000 g/kg)(m2/10000 cm2) = 1/100000
         erosion = enriched_eroded_mass * scenario.kd * erosion_intensity * 10000.  # g/cm2 *(m3/g)*10000cm2/m2 -> [m]  !Enrich based on PRZM, kd: kd sediment may differ from kd erosion
         erosion_mass[leach_dates] = \
             (((total_mass / retardation / soil.delta_x) / deg_total) * (1 - degradation_rate) * erosion)[leach_dates]  # conc[kg/m3]*[m] = kg/m2
 
-
     # JCH - Need to offset by one day for some reason. Slowing things down?
     out_array = np.hstack(([[0.0], [0.0]], out_array[:,:-1]))
 
-    return out_array
+    return out_array.T
+
 
 
 def waterbody_concentration(flow, runoff_and_erosion, runoff_and_erosion_mass,
@@ -164,6 +186,7 @@ def waterbody_concentration(flow, runoff_and_erosion, runoff_and_erosion_mass,
         # solute holding capacity in region 2
         capacity_2 = kd_sed_2 * m_sed_2 + kd_bio * m_bio_2 + kd_doc_2 * m_doc_2 + vol2
 
+        # Fraction going to water column and benthic
         fw1 = vol1 / capacity_1  # fw1 is daily, vol1 is daily
         fw2 = vol2 / capacity_2
 
@@ -174,9 +197,9 @@ def waterbody_concentration(flow, runoff_and_erosion, runoff_and_erosion_mass,
         # Omega mass transfer - Calculates littoral to benthic mass transfer coefficient
         omega = benthic.d_over_dx / benthic.depth  # (m3/hr)/(3600 s/hr)
 
-        return capacity_1, capacity_2, fw1, fw2, theta, sed_conv_factor, omega
+        return fw1, fw2, theta, sed_conv_factor, omega
 
-    def simultaneous_diffeq(gamma1, gamma2, omega, theta, m1, m2):
+    def simultaneous_diffeq(gamma1, gamma2, omega, theta, daily_aq_peak):
         """
         ANALYTICAL SOLUTION FOR THE TWO SIMULTANEOUS DIFFERENTIAL EQNS:
                   dm1/dt = Am1 + Bm2
@@ -188,6 +211,7 @@ def waterbody_concentration(flow, runoff_and_erosion, runoff_and_erosion_mass,
         """
 
         t_end = 86400.  # seconds, time step of ONE DAY
+        m1, m2 = daily_aq_peak
 
         # Calculate constants for simultaneous_diffeq: A,B,E,F
         # This reduces the model equivalent parameters to the coefficients needed for solving simultaneous_diffeq
@@ -197,10 +221,8 @@ def waterbody_concentration(flow, runoff_and_erosion, runoff_and_erosion_mass,
         f = -gamma2 - omega
 
         af = a + f
-        fxa = f * a
-        bxe = b * e
-        dif = 4 * (fxa - bxe)
-        bbb = math.sqrt(af * af - dif)
+        dif = 4 * ((f * a) - (b * e))
+        bbb = np.sqrt(af * af - dif)
 
         root1 = (af + bbb) / 2.
         root2 = (af - bbb) / 2.
@@ -214,14 +236,14 @@ def waterbody_concentration(flow, runoff_and_erosion, runoff_and_erosion_mass,
         # Calculate new concentrations for next step
         rt1 = root1 * t_end
         rt2 = root2 * t_end
-        exrt1 = math.exp(rt1)
-        exrt2 = math.exp(rt2)
+        exrt1 = np.exp(rt1)
+        exrt2 = np.exp(rt2)
         ccc = x1 * exrt1
         ddd = y1 * exrt2
 
         #values for m1 and m2 after time step t_end
-        mn1 = ccc + ddd
-        mn2 = dd * ccc + ee * ddd
+        mn = np.array([(ccc + ddd),              # Water column
+                       (dd * ccc + ee * ddd)])   # Benthic
 
         # AVERAGE DAILY CONCENTRATION SOLUTION: set up for daily average, but can be changed by adjusting time step
         gx = x1 / root1
@@ -232,17 +254,15 @@ def waterbody_concentration(flow, runoff_and_erosion, runoff_and_erosion_mass,
         term3 = -gx
         term4 = -hx
 
-        mavg1 = (term1 + term2 + term3 + term4) / t_end  # mavg1=(term1+term2+term3+term4)/(T2-T1) #daily avg conc in WC over t_end
+        mavg = np.array([(term1 + term2 + term3 + term4),                       # Water column
+                         (term1 * dd + term2 * ee + term3 * dd + term4 * ee)])  # Benthic
 
-        mavg2 = (term1 * dd + term2 * ee + term3 * dd + term4 * ee) / t_end  #daily avg conc in benthic over t_end
+        mavg /= t_end
 
-        return mn1, mn2, mavg1, mavg2
+        return mn, mavg
 
-    from Tool.parameters import benthic
-    from Tool.parameters import soil
-    from Tool.parameters import water_column
-    from Tool.parameters import stream_channel
-    
+    from Tool.parameters import benthic, soil, water_column, stream_channel
+
     total_runoff, total_erosion = runoff_and_erosion
     runoff_mass, erosion_mass = runoff_and_erosion_mass
     n_dates = total_runoff.size
@@ -269,65 +289,75 @@ def waterbody_concentration(flow, runoff_and_erosion, runoff_and_erosion_mass,
     if process_benthic:
 
         width = stream_channel.a * np.power(cross_section, stream_channel.b)
-        depth = (cross_section - width) / 2.0
+        depth = cross_section / width
         surface_area = width * flow.l
 
         # Compute benthic solute holding capacity
         fw1, fw2, theta, sed_conv_factor, omega = solute_holding_capacity()
 
-        m1_input = runoff_mass + (1. - soil.prben) * erosion_mass
-        m2_input = soil.prben * erosion_mass
+        mass_input = np.vstack([runoff_mass + ((1. - soil.prben) * erosion_mass),  # Water Column
+                                soil.prben * erosion_mass]).T                      # Benthic
 
         # Beginning day aquatic concentrations, considered Peak Aqueous Daily Conc in Water Column
-        aq_conc1, aq_conc2 = np.zeros(n_dates), np.zeros(n_dates)  # Daily avg aq conc (kg/m3)
-        aq_peak1, aq_peak2 = np.zeros(n_dates), np.zeros(n_dates)  # Daily peak aq conc (kg/m3)
-        aqconc_avg1, aqconc_avg2 = np.zeros(n_dates), np.zeros(n_dates)
+        daily_peak = np.zeros((n_dates, 2))
+        daily_avg = np.zeros((n_dates, 2))
+        fw = np.array([fw1, fw2]).T
 
     else:
-        aqconc_avg1 = aqconc_avg2 = aq_conc1 = aq_conc2 = aq_peak1 = aq_peak2 = np.array([])
+        daily_avg = daily_peak = np.zeros([1, 2])
 
     # Reset starting values
-    conc = mn1 = mn2 = 0
+    aqconc_wb = 0
+    mn = np.array([0, 0])
 
     for d in range(daily_concentration.size):
 
         # Compute daily average concentration in the water body - when no Benthic layer considered
-        conc += daily_concentration[d]    #initial water body concentration for current time step
-        aqconc_avg_wb[d] = conc / k_adj[d] * (1 - exp_k[d])  # Daily avg aq conc in water body, area under curve/t = Ci/k*(1-e^-k), NO benthic
-        conc *= exp_k[d]                  #initial water body concentration for next time step
+        aqconc_wb += daily_concentration[d]    #initial water body concentration for current time step
 
-        if process_benthic:
+        # Daily avg aq conc in water body, area under curve/t = Ci/k*(1-e^-k), NO benthic
+        aqconc_avg_wb[d] = aqconc_wb / k_adj[d] * (1 - exp_k[d])
 
-            # Addition of Benthic region, assume VVWM benthic properties
-            m1 = mn1 + m1_input[d]  # daily peak mass in water column
-            m2 = mn2 + m2_input[d]  # daily peak mass in benthic region
+        #initial water body concentration for next time step
+        aqconc_wb *= exp_k[d]
+
+        if process_benthic:  # Addition of Benthic region, assume VVWM benthic properties
+
+            # Add mass input to antecedent mass
+            daily_mass = mn + mass_input[d]
+
+            # Get daily volume of water column and benthic zones  # JCH - different from volume because vol 40.  why?
+            daily_vol = np.array([(depth[d] * surface_area[d]),                             # Water column
+                                  (benthic.depth * surface_area[d] * benthic.porosity)])    # Benthic zone
 
             # Convert to aqueous concentrations (peak) at beginning of day
-            # Note: aq_peak1 can be outputted - Daily peak aq conc in WC
-            aq_peak1[d] = m1 * fw1[d] / depth[d] / surface_area                  #daily peak aq conc in WC, kg/m3
-            aq_peak2[d] = m2 * fw2 / (benthic.depth * surface_area * benthic.porosity) #daily peak aq conc in benthic, kg/m3
+            daily_peak[d] = daily_mass * fw[d] / daily_vol
 
-            #For simul diffeq soln: mn1,mn2,mavg1,mavg2 = new_aqconc1, new_aqconc2, aqconc_avg1[d], aqconc_avg2[d]
-            #Note: aqconc_avg1 and aqconc_avg2 are outputted - Daily avg aq conc in WC and Benthic regions
-            new_aqconc1, new_aqconc2, aqconc_avg1[d], aqconc_avg2[d] = \
-                simultaneous_diffeq(k_adj[d], degradation_aqueous, omega, theta, aq_conc1[d], aq_conc2[d])
+            # Solve simultaneous differential equation
+            new_aqconc, daily_avg[d] = \
+                simultaneous_diffeq(k_adj[d], degradation_aqueous, omega, theta[d], daily_peak[d])
 
-            # Masses m1 and m2 after time step, t_end - not currently outputted, but calculated in VVWM
-            mn1 = new_aqconc1 / fw1[d] * depth[d] * surface_area
-            mn2 = new_aqconc2 / fw2 * benthic.depth * surface_area * benthic.porosity
+            # Masses m1 and m2 after time step, t_end
+            mn = new_aqconc / fw[d] * daily_vol
 
             # Daily average mass in WC - not currently outputted, but calculated in VVWM
-            mavg1_store = aqconc_avg1[d] / fw1[d] * depth[d] * surface_area
-
-    # Adjust for change in units - for concentrations: 1 kg/m3 to 1000000. ug/L
-    aqconc_avg_wb *= 1000000.
-    aqconc_avg1 *= 1000000.
-    aqconc_avg2 *= 1000000.
-    aq_peak1 *= 1000000.
-    aq_peak2 *= 1000000.
-    runoff_mass *= 1000000.
+            #mavg1_store = aqconc_avg[0][d] / fw1[d] * depth[d] * surface_area[d]
 
     with np.errstate(divide='ignore', invalid='ignore'):
         runoff_conc = np.nan_to_num(runoff_mass / total_runoff)
+        erosion_conc = np.nan_to_num(erosion_mass / total_runoff)
 
-    return total_flow, baseflow, runoff_conc, aqconc_avg_wb, aqconc_avg1, aqconc_avg2, aq_peak1
+    # Adjust for change in units - for concentrations: 1 kg/m3 to 1000000. ug/L
+    conv = 1000000.  # kg/m3 -> ug/L
+    aqconc_avg_wb, daily_avg, daily_peak, runoff_conc = \
+        map(lambda x: x * conv, (aqconc_avg_wb, daily_avg, daily_peak, runoff_conc))
+
+    # Diagnostics
+    aqconc_avg_wb, daily_avg, daily_peak = \
+        tuple(map(lambda x: x.T, (aqconc_avg_wb, daily_avg, daily_peak)))
+
+    return total_flow, baseflow, runoff_conc, aqconc_avg_wb, daily_avg, daily_peak
+
+if __name__ == "__main__":
+    import pesticide_calculator
+    pesticide_calculator.main()
