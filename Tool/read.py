@@ -163,7 +163,11 @@ def input_validate(data):
             "cropdesired": split_str,       # Crop IDs
             "koc": float,			        # Koc, read as mL/g
             "kflag": int,			        # Koc=1, Kd=2
-            "soil_halflife": float,         # Soil half life
+            "soil_hl": float,               # Soil half life
+            "wc_metabolism_hl": float,      # Water column metabolism half life
+            "ben_metabolism_hl": float,     # Benthic metabolism half life
+            "aq_photolysis_hl": float,      # Aqueous photolysis half life
+            "hydrolysis_hl": float,         # Hydrolysis half life
             "appflag": int,			        # Application by Crop Stage (1) or User-defined (2)
             "distribflag": int,		        # Application distribution flag (1=unif, 2=unif step, 3=triang)
             "cropstage": int,		        # Crop stage for app (pl=1,emer=2,mat=3,harv=4) or 0
@@ -211,7 +215,11 @@ def input_validate(data):
 
     # Initialize variables
     i.appmass_init /= 10000.0  # convert applied Mass to kg/m2
-    i.degradation_aqueous = 0.693 / i.soil_halflife	 #aqueous, per day
+    i.degradation_aqueous = 0.693 / i.soil_hl       #total system surface soil deg rate, per day
+    i.deg_photolysis = 0.693 / i.aq_photolysis_hl   #aqueous photolysis rate, per day
+    i.deg_hydrolysis = 0.693 / i.hydrolysis_hl      #hydrolysis rate, per day
+    i.deg_wc = 0.693 / i.wc_metabolism_hl           #water column metabolism or aerobic aquatic deg rate, per day
+    i.deg_benthic = 0.693 / i.ben_metabolism_hl     #benthic metabolism or aerobic sorbed deg rate, per day
     i.koc /= 1000.0  # Now in m3/kg
 
     # Initialize arrays

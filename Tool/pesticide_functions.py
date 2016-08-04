@@ -136,7 +136,9 @@ def transport(pesticide_mass_soil, scenario, input, process_erosion):
 
 
 def waterbody_concentration(q, v, length, total_runoff, runoff_mass, erosion_mass,
-                            process_benthic=True, degradation_aqueous=None, koc=None):  # MMF - we need area_wb, daily_depth, depth_0 for benthic calcs to work
+                            process_benthic=True, deg_photolysis=None, deg_hydrolysis=None, deg_wc = None, deg_benthic = None, koc=None):
+
+    # MMF - we need area_wb, daily_depth, depth_0 for benthic calcs to work
 
     def solute_holding_capacity():
         '''
@@ -278,9 +280,13 @@ def waterbody_concentration(q, v, length, total_runoff, runoff_mass, erosion_mas
     daily_concentration = np.zeros_like(total_runoff)
     daily_concentration[conc_days] = runoff_mass[conc_days] / volume[conc_days]  #initial concentration in runoff at beginning of day
 
-    k_adj = (total_flow / volume) + degradation_aqueous  # washout + aqueous degradation
+    #Overall littoral deg rate (k_adj). Note: deg_wc = aerobic aquatic metabolism rate, deg_benthic = aerobic sorbed metabolism rate
+    k_adj = (total_flow / volume) + (deg_photolysis + deg_hydrolysis)*fw1 + (deg_wc*fw1) + deg_benthic*(1-fw1)
     exp_k = np.exp(-k_adj)
     aqconc_avg_wb = np.zeros_like(total_runoff)
+
+    #Overall benthic deg rate (k_adj2). Note: aerobic & anaerobic metabolism rates are equated, so deg_wc = anaer aq met rate, deg_benthic = anaer sorb met rate
+    k_adj2 = deg_wc * fw2 + deg_benthic * (1 - fw2) + deg_hydrolysis * fw2
 
     if process_benthic:
 
@@ -321,7 +327,7 @@ def waterbody_concentration(q, v, length, total_runoff, runoff_mass, erosion_mas
             #For simul diffeq soln: mn1,mn2,mavg1,mavg2 = new_aqconc1, new_aqconc2, aqconc_avg1[d], aqconc_avg2[d]
             #Note: aqconc_avg1 and aqconc_avg2 are outputted - Daily avg aq conc in WC and Benthic regions
             new_aqconc1, new_aqconc2, aqconc_avg1[d], aqconc_avg2[d] = \
-                simultaneous_diffeq(k_adj[d], degradation_aqueous, omega, theta, aq_conc1[d], aq_conc2[d])
+                simultaneous_diffeq(k_adj[d], k_adj2[d], omega, theta, aq_conc1[d], aq_conc2[d])
 
             # Masses m1 and m2 after time step, t_end - not currently outputted, but calculated in VVWM
             mn1 = new_aqconc1 / fw1[d] * daily_depth[d] * surface_area
