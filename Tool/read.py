@@ -197,14 +197,161 @@ class Scenario(ParameterSet):
 
     def initialize_variables(self, scenario_matrix):
 
+<<<<<<< HEAD
         out_dict = dict(zip(scenario_matrix.header, scenario_matrix[self.id]))
+=======
+def scenario(path, input, process_erosion=True):
+
+    input_variables = ["covmax",            # Maximum coverage
+                       "num_records",       # Number of records
+                       "num_years",         # Number of years
+                       "count_runoff",      # Number of runoff days
+                       "date_runoff",       # Dates of runoff days
+                       "raw_runoff",        # Runoff sequence
+                       "soil_water",        # Soil water
+                       "count_velocity",    # Number of leaching days
+                       "date_velocity",     # Dates of leaching days
+                       "raw_leaching",      # Leaching sequence
+                       "org_carbon",        # Percent organic carbon
+                       "bulk_density",      # Bulk density
+                       "rain",              # Daily Rainfall
+                       "plant_factor"       # Daily Plant factor
+                       ]
+
+    if process_erosion:
+        input_variables[6:6] = ["date_erosion",      # Dates of erosion days
+                                "raw_erosion"        # Erosion sequence
+                                ]
+
+    file_contents = path.unpickle
+    if len(file_contents) == len(input_variables):
+        p = dict(zip(input_variables, file_contents))
+    else:
+        sys.exit("Unable to match scenario file contents with SAM variables. Check read.scenario and scenario file")
+
+    s = ParameterSet(**p)
+
+    # Initalize runoff, erosion, and leaching arrays
+    s.runoff = np.zeros_like(s.rain)
+    s.runoff[np.int32(s.date_runoff) - 2] = s.raw_runoff
+
+    if process_erosion:
+        s.erosion = np.zeros_like(s.rain)
+        s.erosion[np.int32(s.date_erosion) - 2] = s.raw_erosion
+
+    s.leaching = np.zeros_like(s.rain)
+    s.leaching[np.int32(s.date_velocity) - 2] = s.raw_leaching
+
+    # Add kd
+    s.kd = input.koc * s.org_carbon if input.kflag else s.koc
+
+    # Trim to start_count
+    s.soil_water = np.hstack((s.soil_water[input.start_count + 1:], [0.0]))  # @@@ - why does this need to be offset
+    s.plant_factor, s.rain, s.runoff, s.leaching = \
+        (array[input.start_count:] for array in (s.plant_factor, s.rain, s.runoff, s.leaching))
+    if process_erosion:
+        s.erosion = s.erosion[input.start_count:]
+
+    return s
+
+
+def input_validate(data):
+
+    def parse_date(datestring):
+        month, day, year = map(int, datestring.split("/"))
+        return datetime(year, month, day)
+
+    def truefalse(string):
+        return True if string == "True" else False
+
+    def split_str(string):
+        return list(map(int, string.split(",")))
+
+    data_map = \
+        {
+            "eco_or_dw": str,               # eco or dw
+            "start_count": int,		        # num_record of simulation start date, since 1/1/1961
+            "startjul": int,	            # Simulation Start Julian date
+            "endjul": int,		            # Simulation End Julian date
+            "firstyear": int,	            # First year of simulation
+            "firstmon": int,	            # First month of simulation
+            "firstday": int,		        # First day of simulation
+            "lastyear": int,		        # Last year of simulation
+            "numberyears": int,		        # Number of years in simulation
+            "ndates": int,		            # Total # days in simulation
+            "jul_dates": split_str,         # Julian dates of simulation days
+            "sdates": str,		    	    # Actual date strings
+            "chem": str,			        # Chemical name
+            "number_crop_ids": int,         # Total # crops
+            "cropdesired": split_str,       # Crop IDs
+            "koc": float,			        # Koc, read as mL/g
+            "kflag": int,			        # Koc=1, Kd=2
+            "soil_hl": float,               # Soil half life
+            "wc_metabolism_hl": float,      # Water column metabolism half life
+            "ben_metabolism_hl": float,     # Benthic metabolism half life
+            "aq_photolysis_hl": float,      # Aqueous photolysis half life
+            "hydrolysis_hl": float,         # Hydrolysis half life
+            "appflag": int,			        # Application by Crop Stage (1) or User-defined (2)
+            "distribflag": int,		        # Application distribution flag (1=unif, 2=unif step, 3=triang)
+            "cropstage": int,		        # Crop stage for app (pl=1,emer=2,mat=3,harv=4) or 0
+            "stagedays": int,			    # Days after/before crop stage, or 0
+            "stageflag": int,			    # after(1) or before(2) crop stage, or 0
+            "napps": int,			        # Total Number of Applications, =0 cropstage app
+            "twindow1": int,			    # Application time window1 (d), applicable to Unif, Unif Step, Triangular
+            "twindow2": int,			    # Application time window2 (d), applicable to Unif Step
+            "pct1": float,			        # Percent of App during window1 (%), applicable to Unif, Unif Step
+            "pct2": float,			        # Percent of App during window2 (%), applicable to Unif Step
+            "appnumrec_init": int,	    	# Application num_record, =0 cropstage app
+            "appdate_init": int,			# Application Julian dates, =0 cropstage app
+            "appmass_init": float,          # Mass of each application (kg/ha, coverted to kg/m2 below)
+            "appmethod_init": int,		    # Application method (1=ground,2=foliar)
+            "outtype": int,			        # Output type (1=Daily,2=TimeAvg)
+            "avgpd": int,			        # Averaging period (days)
+            "outputtype": int,			    # Time-Avg Output Type (1=AvgConcs, 2=ToxExceed)
+            "timeavg": int,		            # Time-Avg Conc Options Selected
+            "threshold": int,		        # Threshold(ug/L)
+            "thresoutput": int,			    # Threshold Options Selected
+            "outformat": int,			    # Output format (1=table,2=map,3=plot,4=download)
+            "run_type": str,
+            "input_years": truefalse,
+            "process_benthic": truefalse,
+            "process_erosion": truefalse,
+            "write_daily_files": truefalse,
+            "convolution": truefalse
+        }
+
+    # Check if any required input data are missing
+    missing_data = set(data_map.keys()) - set(data.get('inputs', {}).keys())
+    if missing_data:
+        sys.exit("No input data provided for required fields: " + ", ".join(missing_data))
+
+    # Format data type of input json
+    input_data = {}
+    for key, val in data['inputs'].items():
+        data_format = data_map.get(key)
+        if data_format:
+            input_data[key] = data_format(val)
+        else:
+            print("Input field \"{}\" is not understood".format(key))
+>>>>>>> mfry
 
         data = np.load(self.path)
         sequential_array = data['data']
         for i, key in enumerate(data['header']):
             out_dict[key] = sequential_array[i]
 
+<<<<<<< HEAD
         return out_dict
+=======
+    # Initialize variables
+    i.appmass_init /= 10000.0  # convert applied Mass to kg/m2
+    i.degradation_aqueous = 0.693 / i.soil_hl       #total system surface soil deg rate, per day
+    i.deg_photolysis = 0.693 / i.aq_photolysis_hl   #aqueous photolysis rate, per day
+    i.deg_hydrolysis = 0.693 / i.hydrolysis_hl      #hydrolysis rate, per day
+    i.deg_wc = 0.693 / i.wc_metabolism_hl           #water column metabolism or aerobic aquatic deg rate, per day
+    i.deg_benthic = 0.693 / i.ben_metabolism_hl     #benthic metabolism or aerobic sorbed deg rate, per day
+    i.koc /= 1000.0  # Now in m3/kg
+>>>>>>> mfry
 
 
 def flows(flow_file, dates, id_field="COMID", filter=None):
