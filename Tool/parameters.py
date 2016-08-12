@@ -68,20 +68,17 @@ time_of_travel_params = {
 }
 
 # Preprocessed data repositories
-path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
+#path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
+path = r"C:\SAM_repository\MTB_Test08092016"
+
 path_params = {
 
-    "flow_file": os.path.join(path, "bin", "MarkTwain", "Flows", "region_07.csv"),
-    "scenario_dir": os.path.join(path, "bin", "MarkTwain", "Scenarios", "New"),
-    "scenario_matrix":
-        FilePath(os.path.join(path, "bin", "MarkTwain", "Scenarios", "New"), "single_value.npz"),
-    "recipe_path": FilePath(os.path.join(path, "bin", "MarkTwain", "Recipes"), "nhd_recipe_(\d+?)_(\d{4}).txt"),
-    "hydro_path": FilePath(os.path.join(path, "bin", "MarkTwain", "Hydro"), "{}_hydro.txt"),
-    "output_path":
-        FilePath(os.path.join(path, "bin", "Outputs", "Python", "MayTest"), "Eco_{}_{}_daily.out"),
-    "convolution_path":
-        FilePath(os.path.join(path, "bin", "Outputs", "Python", "ConvolutionMatrices"), "test_{}.npz"),
-
+    "flow_file": os.path.join(r"T:\SAM\pySAM\bin\MarkTwain\Flows", "region_07.csv"),
+    "scenario_dir": os.path.join(path, "Scenarios", "Pickled"),
+    "recipe_path": FilePath(os.path.join(path, "Recipes"), "nhd_recipe_(\d+?)_(\d{4}).txt"),
+    "hydro_path": FilePath(os.path.join(r"C:\SAM_repository\EcoOutput_all\EcoOutput_nhd\MO"), "{}_hydro.txt"),
+    "output_path": FilePath(os.path.join(path, "Outputs"), "Eco_{}_{}_daily.out"),
+    "convolution_path": FilePath(os.path.join(path, "Outputs"), "test_{}.npz"),
 
     # Time of Travel
     "lakefile_path": FilePath(os.path.join(path, "bin", "Preprocessed", "LakeFiles"), "region_{}_v3.csv"),
@@ -99,7 +96,7 @@ date_params = {
 # To be added to input file
 to_be_added_params = {
         # Hardwired stuff to get added to the front end
-        "years": [2010, 2011, 2012, 2013], # JCH - replace
+        "years": [2010, 2011, 2012, 2013],  # JCH - replace
         "process_benthic": False,
         "process_erosion": False,
         "write_daily_files": True,

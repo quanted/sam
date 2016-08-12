@@ -275,7 +275,7 @@ def waterbody_concentration(flow, runoff_and_erosion, runoff_and_erosion_mass,
     n_dates = total_runoff.size
 
     # Develop hydrograph
-    average_runoff = np.average(total_runoff)  # m3/d
+    average_runoff = total_runoff.mean()  # m3/d
     baseflow = np.ones_like(flow.q) * 1.e-6  # 1.e-6 is minimum baseflow
     baseflow[flow.q >= average_runoff] = flow.q[flow.q >= average_runoff] - average_runoff
     total_flow = baseflow + total_runoff

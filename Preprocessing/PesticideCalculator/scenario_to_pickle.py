@@ -65,12 +65,12 @@ def read_scenario(path):
 
 
 
-scenario_dir = r"T:\pySAM\bin\OhioErosion\Scenarios"
-pickle_dir = r"T:\pySAM\bin\OhioErosion\Scenarios\Pickled"
+scenario_dir = r"C:\SAM_repository\MTB_Test08092016\Scenarios"
+pickle_dir = r"C:\SAM_repository\MTB_Test08092016\Scenarios\Pickled"
 
 all_files = os.listdir(scenario_dir)
 for i, f in enumerate(all_files):
-    if i and not i % 50:
+    if i and not i % 1000:
         print("{}/{}".format(i, len(all_files)))
     p = os.path.join(scenario_dir, f)
     vals = read_scenario(p)

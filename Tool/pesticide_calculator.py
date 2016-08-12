@@ -9,7 +9,7 @@ def pesticide_calculator(input_data):
 
     # Initialize parameters from front end
     inputs = read.InputParams(input_data)
-    inputs.write_daily_files = False
+    inputs.write_daily_files = True
     inputs.convolution = False
 
     # Locate and index recipe files by reach ID and year
@@ -23,23 +23,23 @@ def pesticide_calculator(input_data):
     count = 0
     # Loop through recipes and corresponding flows listed in flow fil
     for recipe_id, flow in read.flows(p.flow_file, inputs.dates, filter=recipe_map.keys()):
-        count += 1
-        if count == 20:
-            abra
-        print(recipe_id)
+
+        count +=1
+        if not count % 100:
+            print(count)
 
         # Read the recipe file that corresponds to the Recipe ID and construct a list of scenarios
         recipe = read.Recipe(recipe_map, recipe_id, p.scenario_dir, inputs)
 
         # Loop through each of the years of surface hydrology (runoff and erosion) in the scenario
-        for year, runoff_and_erosion in read.hydro(p.hydro_path, recipe.id, inputs.hydro_date_offset, inputs.years):
+        for year, runoff_and_erosion in read.hydro(p.hydro_path, recipe.id, inputs.hydro_date_offset, inputs.years,
+                                                   process_erosion=True):
 
             # Initialize array for cumulative values of runoff (first row) and erosion (second row)
             transported_mass = np.zeros(runoff_and_erosion.shape)
 
             # Loop through each scenario for the catchment-year
             for scenario in recipe.scenarios[year]:
-
                 # Compute pesticide application that winds up in soil
                 pesticide_mass_soil = functions.applications(inputs, scenario)
 
@@ -47,15 +47,14 @@ def pesticide_calculator(input_data):
                 transported_mass += functions.transport(pesticide_mass_soil, scenario, inputs) * scenario.area
 
             # Compute concentration in water
-            #total_flow, baseflow, runoff_conc, aqconc_avg_wb, aqconc_avg, aq_peak = \
-            #    functions.waterbody_concentration(flow, runoff_and_erosion, transported_mass,
-            #                                      inputs.process_benthic, inputs.degradation_aqueous, inputs.koc)
+            total_flow, baseflow, runoff_conc, aqconc_avg_wb, aqconc_avg, aq_peak = \
+                functions.waterbody_concentration(flow, runoff_and_erosion, transported_mass,
+                                                  inputs.process_benthic, inputs.degradation_aqueous, inputs.koc)
 
             # Write daily output
             if inputs.write_daily_files:
-
                 write.daily(p.output_path, recipe_id, year, inputs.dates_str, total_flow, baseflow, runoff_and_erosion,
-                            aqconc_avg_wb, runoff_conc, transported_mass, aqconc_avg, aq_peak)
+                            aqconc_avg_wb, runoff_conc, transported_mass, aqconc_avg, aq_peak, report=False)
 
             if inputs.convolution:
 
@@ -68,7 +67,6 @@ def pesticide_calculator(input_data):
         for year, array in output_arrays.items():
             array.write_to_file(p.convolution_path.format(year))
             # time_of_travel(output_array)
-
 
 
 def main(input_data=None):
@@ -98,7 +96,7 @@ def main(input_data=None):
                            "processes": "1",
                            "sim_date_end": "12/31/2014",
                            "application_method": "1",
-                           "region": "Ohio Valley",
+                           "region": "Mark Twain Basin",
                            "apps_per_year": "1",
                            "output_type": "2",
                            "refine_percent_applied2": "50",
@@ -113,6 +111,7 @@ if __name__ == "__main__":
     time_it = False
     if time_it:
         import cProfile
+
         cProfile.run('main()')
     else:
         main()

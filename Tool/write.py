@@ -5,14 +5,12 @@ import pandas as pd
 
 
 def daily(output_file, recipe_id, year, dates, total_flow, baseflow, runoff_and_erosion, aqconc_avg_wb, runoff_conc,
-          transported_mass, aqconc_avg, aq_peak):
+          transported_mass, aqconc_avg, aq_peak, report=False):
 
     # Create the output directory if it doesn't exist
     if not os.path.isdir(output_file.dir):
         os.mkdir(output_file.dir)
     output_file = output_file.format(recipe_id, year)
-
-    # Modify dates
 
     total_runoff, total_erosion = runoff_and_erosion
     runoff_mass, erosion_mass = transported_mass
@@ -23,9 +21,10 @@ def daily(output_file, recipe_id, year, dates, total_flow, baseflow, runoff_and_
         ("Baseflow(m3)", baseflow),  # Baseflow
         ("Runoff(m)", total_runoff),  # Runoff flow
         ("RMass(kg)", runoff_mass),  # Mass of pesticide in runoff
+        ("Erosion(m)", total_erosion),
+        ("EMass(kg)", erosion_mass),
         ("RConc(ug/L)", runoff_conc),  # Concentration of pesticide in runoff
-        ("Conc(ug/L)", aqconc_avg_wb),
-        # Daily avg aqueous conc in water column of water body, no benthic  # JCH - to be called WB_Conc eventually
+        ("Conc(ug/L)", aqconc_avg_wb), # Daily avg aqueous conc in water column of water body, no benthic  # JCH - to be called WB_Conc eventually
         ("WC_Conc(ug/L)", aqconc_avg[0]),  # Daily avg aqueous conc of pesticide in water column of water body
         ("Ben_Conc(ug/L)", aqconc_avg[1]),  # Daily avg aqueous conc of pesticide in benthic region of water body
         ("WC_Peak(ug/L)", aq_peak[0]),  # Daily peak aqueous conc of pesticide in water column of water body
@@ -40,9 +39,8 @@ def daily(output_file, recipe_id, year, dates, total_flow, baseflow, runoff_and_
 
     df.to_csv(output_file, index_label="Date")
 
-    if __name__ == "__main__":
-        print("This is a library. Run pesticide_calculator.py or travel_time.py")
-
+    if report:
+        print("{} written successfully".format(output_file))
 
 def daily_tot(output_path, sam_output_id, reach_id, mode, dates,
               total_flow, mass_and_runoff, baseflow, conc, runoff_conc,
