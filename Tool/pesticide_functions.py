@@ -143,17 +143,8 @@ def transport(pesticide_mass_soil, scenario, i):
 
     return out_array.T
 
+def waterbody_concentration(q, v, length, total_runoff, runoff_mass, erosion_mass, process_benthic=True, deg_photolysis=None, deg_hydrolysis=None, deg_wc = None, deg_benthic = None, koc=None):
 
-<<<<<<< HEAD
-=======
-def waterbody_concentration(q, v, length, total_runoff, runoff_mass, erosion_mass,
-                            process_benthic=True, deg_photolysis=None, deg_hydrolysis=None, deg_wc = None, deg_benthic = None, koc=None):
-
-    # MMF - we need area_wb, daily_depth, depth_0 for benthic calcs to work
->>>>>>> mfry
-
-def waterbody_concentration(flow, runoff_and_erosion, runoff_and_erosion_mass,
-                            process_benthic=True, degradation_aqueous=None, koc=None):
 
     def solute_holding_capacity():
         # Calculates Solute Holding capacities and mass transfer between water column and benthic regions
@@ -344,22 +335,15 @@ def waterbody_concentration(flow, runoff_and_erosion, runoff_and_erosion_mass,
             # Convert to aqueous concentrations (peak) at beginning of day
             daily_peak[d] = daily_mass * fw[d] / daily_vol
 
-<<<<<<< HEAD
-            # Solve simultaneous differential equation
-            new_aqconc, daily_avg[d] = \
-                simultaneous_diffeq(k_adj[d], degradation_aqueous, omega, theta[d], daily_peak[d])
-=======
             #For simul diffeq soln: mn1,mn2,mavg1,mavg2 = new_aqconc1, new_aqconc2, aqconc_avg1[d], aqconc_avg2[d]
             #Note: aqconc_avg1 and aqconc_avg2 are outputted - Daily avg aq conc in WC and Benthic regions
             new_aqconc1, new_aqconc2, aqconc_avg1[d], aqconc_avg2[d] = \
                 simultaneous_diffeq(k_adj[d], k_adj2[d], omega, theta, aq_conc1[d], aq_conc2[d])
->>>>>>> mfry
+
+            new_aqconc = np.array([new_aqconc1, new_aqconc2])
 
             # Masses m1 and m2 after time step, t_end
             mn = new_aqconc / fw[d] * daily_vol
-
-            # Daily average mass in WC - not currently outputted, but calculated in VVWM
-            #mavg1_store = aqconc_avg[0][d] / fw1[d] * depth[d] * surface_area[d]
 
     with np.errstate(divide='ignore', invalid='ignore'):
         runoff_conc = np.nan_to_num(runoff_mass / total_runoff)

@@ -70,9 +70,13 @@ class InputParams(ParameterSet):
 
     def adjust_variables(self):
         # Initialize variables
-        self.application_rate /= 10000.0  # convert applied Mass to kg/m2
-        self.degradation_aqueous = 0.693 / self.soil_metabolism_hl  # aqueous, per day
-        self.koc /= 1000.0  # Now in m3/kg
+        self.application_rate /= 10000.0                     # convert applied Mass to kg/m2
+        self.degradation_aqueous = 0.693 / self.soil_hl      # total system surface soil deg rate, per day
+        self.deg_photolysis = 0.693 / self.aq_photolysis_hl  # aqueous photolysis rate, per day
+        self.deg_hydrolysis = 0.693 / self.hydrolysis_hl     # hydrolysis rate, per day
+        self.deg_wc = 0.693 / self.wc_metabolism_hl          # water column metabolism or aerobic aquatic deg rate, per day
+        self.deg_benthic = 0.693 / self.ben_metabolism_hl    # benthic metabolism or aerobic sorbed deg rate, per day
+        self.koc /= 1000.0                                   # now in m3/kg
 
     def set_dates(self):
         from Tool.parameters import starting_dates
@@ -105,19 +109,23 @@ class InputParams(ParameterSet):
                 "crop_list_no": csv,  # 10,14,15,18    (cropdesired)
                 "crop_number": int,  # 4              (number_crop_ids)
                 "chemical_name": str,  # Custom         (chem)
-                "soil_metabolism_hl": int,  # 123            (soil_halfLife)
+                "soil_hl": float,  # 123            # Soil half life
+                "wc_metabolism_hl": float,          # Water column metabolism half life
+                "ben_metabolism_hl": float,         # Benthic metabolism half life
+                "aq_photolysis_hl": float,          # Aqueous photolysis half life
+                "hydrolysis_hl": float,             # Hydrolysis half life
                 "refine_time_window2": int,  # 43             (twindow1)
                 "refine_time_window1": int,  # 7              (twindow2)
-                "coefficient": int,  # 1              (kdflag)
-                "sim_date_1stapp": date,  # 04/20/1984     (appdate_init)
-                "sim_date_start": date,  # 01/01/1984     (firstyear/firstmon/firstday/ndates)
-                "sim_type": str,  # eco            (eco_or_dw)
-                "sim_date_end": date,  # 12/31/2013     (firstyear/firstmon/firstday/ndates)
+                "coefficient": int,  # 1                      (kdflag)
+                "sim_date_1stapp": date,  # 04/20/1984        (appdate_init)
+                "sim_date_start": date,  # 01/01/1984    (firstyear/firstmon/firstday/ndates)
+                "sim_type": str,  # eco                  (eco_or_dw)
+                "sim_date_end": date,  # 12/31/2013      (firstyear/firstmon/firstday/ndates)
                 "application_method": int,  # 1              (appmethod_init)
                 "region": str,  # Ohio Valley    (run type?  anyway, not previously used)
                 "apps_per_year": int,  # 1              (napps)
                 "refine_percent_applied2": int,  # 50             (pct1)
-                "koc": int,  # 100            (coefficient)
+                "koc": float,  # 100            (coefficient)
                 "refine_percent_applied1": int,
                 "output_type": int,  # 2
                 "output_time_avg_conc": int,  # 1
