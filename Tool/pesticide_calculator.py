@@ -82,7 +82,11 @@ def main(input_data=None):
                            "workers": "16",
                            "crop_number": "4",
                            "chemical_name": "Custom",
-                           "soil_metabolism_hl": "123",
+                           "soil_hl": "417",             # Soil half life at 25 degC (atrazine)
+                           "wc_metabolism_hl": "277",    # Water column metabolism half life at 25 degC (atrazine)
+                           "ben_metabolism_hl": "588",   # Benthic metabolism half life at 25 degC (atrazine)
+                           "aq_photolysis_hl": "168",    # Aqueous photolysis half life at 40 deg latitude (atrazine)
+                           "hydrolysis_hl": "0",         # Hydrolysis half life (atrazine)
                            "refine_time_window2": "0",
                            "refine_time_window1": "50",
                            "coefficient": "1",
@@ -99,9 +103,9 @@ def main(input_data=None):
                            "region": "Mark Twain Basin",
                            "apps_per_year": "1",
                            "output_type": "2",
-                           "refine_percent_applied2": "50",
+                           "refine_percent_applied2": "0",
                            "koc": "100",
-                           "refine_percent_applied1": "50"},
+                           "refine_percent_applied1": "100"},
                       "run_type": "single"}
 
     pesticide_calculator(input_data)
