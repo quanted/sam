@@ -1,110 +1,117 @@
 import numpy as np
-from Tool import read
-from Tool import write
+
+from Tool import read, write
 from Tool import pesticide_functions as functions
+from Tool.parameters import paths as p
 
 
 def pesticide_calculator(input_data):
-    from Tool.parameters import data as d
 
-    # Initialize parameter set from json input
-    i = read.input_validate(input_data)
+    # Initialize parameters from front end
+    inputs = read.InputParams(input_data)
+    inputs.write_daily_files = True
+    inputs.convolution = False
 
-    # Find and assemble recipes
-    recipe_files = read.recipes(d.recipe_path, i.input_years, d.scenario_dir, i.cropdesired)
+    # Locate and index recipe files by reach ID and year
+    recipe_map = read.map_recipes(p.recipe_path, inputs.years)
 
-    # Loop through recipes and corresponding flows listed in flow file
-    for recipe_id, q, v, l in read.flows(d.flow_file, i.dates, filter=recipe_files.keys()):
+    n_recipes = len(recipe_map.keys())
 
-        if recipe_id in recipe_files:
+    # Create an array to transport output to convolution routine
+    output_arrays = {year: functions.ConvolutionArray() for year in inputs.years}
 
-            print(recipe_id)
+    count = 0
+    # Loop through recipes and corresponding flows listed in flow fil
+    for recipe_id, flow in read.flows(p.flow_file, inputs.dates, filter=recipe_map.keys()):
 
-            total_runoff_by_year, total_erosion_by_year = \
-                read.hydro(d.hydro_path, recipe_id, i.input_years, i.start_count, i.process_erosion)
+        count +=1
+        if not count % 100:
+            print(count)
 
-            for year in i.input_years:
+        # Read the recipe file that corresponds to the Recipe ID and construct a list of scenarios
+        recipe = read.Recipe(recipe_map, recipe_id, p.scenario_dir, inputs)
 
-                # Initialize arrays for runoff and erosion totals
-                # JCH - What are we doing with total_erosion_mass? Is this going into the daily output?
-                total_runoff = total_runoff_by_year[2010]  # JCH - Outputs match Fortran if we keep fixed at 2010
-                total_runoff_mass = np.zeros_like(total_runoff)
-                total_erosion = total_erosion_by_year[year] if i.process_erosion else None
-                total_erosion_mass = np.zeros_like(total_erosion) if i.process_erosion else None
+        # Loop through each of the years of surface hydrology (runoff and erosion) in the scenario
+        for year, runoff_and_erosion in read.hydro(p.hydro_path, recipe.id, inputs.hydro_date_offset, inputs.years,
+                                                   process_erosion=True):
 
-                # Loop through scenarios contained in the recipe
-                scenarios = recipe_files[recipe_id][year]
+            # Initialize array for cumulative values of runoff (first row) and erosion (second row)
+            transported_mass = np.zeros(runoff_and_erosion.shape)
 
-                for scenario_file, area in scenarios:
+            # Loop through each scenario for the catchment-year
+            for scenario in recipe.scenarios[year]:
+                # Compute pesticide application that winds up in soil
+                pesticide_mass_soil = functions.applications(inputs, scenario)
 
-                    # Read scenario
-                    scenario = read.scenario(scenario_file, input, i.process_erosion)
+                # Determine the loading of pesticide into runoff and erosion
+                transported_mass += functions.transport(pesticide_mass_soil, scenario, inputs) * scenario.area
 
-                    # Compute pesticide applications
-                    pesticide_mass_soil = functions.applications(input, scenario)
+            # Compute concentration in water
+            total_flow, baseflow, runoff_conc, aqconc_avg_wb, aqconc_avg, aq_peak = \
+                functions.waterbody_concentration(flow, runoff_and_erosion, transported_mass,
+                                                  inputs.process_benthic, inputs.degradation_aqueous, inputs.koc)
 
-                    # Determine the loading of pesticide into runoff and erosion
-                    runoff_mass, erosion_mass = functions.transport(pesticide_mass_soil, scenario, input, i.process_erosion)
+            # Write daily output
+            if inputs.write_daily_files:
+                write.daily(p.output_path, recipe_id, year, inputs.dates_str, total_flow, baseflow, runoff_and_erosion,
+                            aqconc_avg_wb, runoff_conc, transported_mass, aqconc_avg, aq_peak, report=False)
 
-                    # Update runoff and erosion totals
-                    total_runoff_mass += runoff_mass * area
-                    if i.process_erosion:
-                        total_erosion_mass += erosion_mass * area
+            if inputs.convolution:
 
-                # Compute concentration in water
-                total_flow, baseflow, avgconc_adj, runoff_conc, aqconc_avg1, aqconc_avg2, aq_conc1 = \
-                    functions.waterbody_concentration(q, v, l, total_runoff, total_runoff_mass, total_erosion_mass,
-                                                      i.process_benthic, i.degradation_aqueous, i.koc)
+                if not output_arrays[year].initialized:
+                    output_arrays[year].initialize(n_recipes, total_flow.size)
 
-                # Write daily output
-                if i.write_daily_files:
-                    write.daily(i.output_file, recipe_id, year, i.dates, total_flow, baseflow, total_runoff,
-                                avgconc_adj, runoff_conc, total_runoff_mass, aqconc_avg1, aqconc_avg2)
+                output_arrays[year].update(recipe_id, transported_mass[0], runoff_and_erosion[0], baseflow)
+
+    if inputs.convolution:
+        for year, array in output_arrays.items():
+            array.write_to_file(p.convolution_path.format(year))
+            # time_of_travel(output_array)
 
 
 def main(input_data=None):
-
     if input_data is None:
-        input_data = {
-            "inputs": {
-                "ndates": "5479",
-                "cropdesired": "10, 40, 15, 18",
-                "appmass_init": "1.32",
-                "pct1": "0.0",
-                "outtype": "1",
-                "stageflag": "2",
-                "firstmon": "1",
-                "appmethod_init": "1",
-                "chem": "atrazine",
-                "appnumrec_init": "0",
-                "outformat": "1",
-                "number_crop_ids": "4",
-                "lastyear": "2014",
-                "avgpd": "4",
-                "start_count": "14245",
-                "distribflag": "1",
-                "appflag": "1",
-                "startjul": "36525",
-                "firstday": "1",
-                "firstyear": "2000",
-                "twindow2": "0",
-                "napps": "1",
-                "eco_or_dw": "eco",
-                "threshold": "0",
-                "stagedays": "14",
-                "appdate_init": "0",
-                "endjul": "42003",
-                "outputtype": "0",
-                "run_type": "single",
-                "input_years": "2010 2011 2012 2013",
-                "process_benthic": "False",
-                "process_erosion": "False",
-                "write_daily_files": "True",
-                "convolution": "False"
-            }
-        }
+        input_data = {"inputs":
+                          {"scenario_selection": "0",
+                           "crop": "10 40 15 18",
+                           "refine": "uniform_step",
+                           "output_time_avg_conc": "1",
+                           "application_rate": "1.3",
+                           "crop_list_no": "10,40,15,18,140",
+                           "output_avg_days": "4",
+                           "workers": "16",
+                           "crop_number": "4",
+                           "chemical_name": "Custom",
+                           "soil_metabolism_hl": "123",
+                           "refine_time_window2": "0",
+                           "refine_time_window1": "50",
+                           "coefficient": "1",
+                           "sim_date_1stapp": "04/20/1984",
+                           "output_tox_value": "4",
+                           "output_format": "3",
+                           "sim_date_start": "01/01/2000",
+                           "sim_type": "eco",
+                           "output_time_avg_option": "2",
+                           "output_tox_thres_exceed": "1",
+                           "processes": "1",
+                           "sim_date_end": "12/31/2014",
+                           "application_method": "1",
+                           "region": "Mark Twain Basin",
+                           "apps_per_year": "1",
+                           "output_type": "2",
+                           "refine_percent_applied2": "50",
+                           "koc": "100",
+                           "refine_percent_applied1": "50"},
+                      "run_type": "single"}
 
     pesticide_calculator(input_data)
 
+
 if __name__ == "__main__":
-    main()
+    time_it = False
+    if time_it:
+        import cProfile
+
+        cProfile.run('main()')
+    else:
+        main()
