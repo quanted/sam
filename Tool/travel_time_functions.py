@@ -10,7 +10,6 @@ from Tool.parameters import time_of_travel as tot
 
 
 class ImpulseResponse:
-
     def __init__(self):
         self.common_calls = {}
 
@@ -29,6 +28,7 @@ class ImpulseResponse:
             a, b = map(float, (a, b))
             tau = a * b
             return ((t ** (a - 1)) / (((tau / a) ** a) * math.gamma(a))) * math.exp(-(a / tau) * t)
+
         return np.array([gamma_distribution(i, alpha, beta) for i in range(length)])
 
 
@@ -40,7 +40,6 @@ class Waterbody:
 
 
 class Reach(Waterbody):
-
     def __init__(self, region, reach_id=None, path_address=None, actual_id=None):
 
         super(Reach, self).__init__(region, reach_id, actual_id)
@@ -87,7 +86,7 @@ class Reach(Waterbody):
 
         addresses = (all_reaches != 0)
         reaches = all_reaches[addresses]
-        self.region.count += len(reaches)
+        # self.region.count += len(reaches)  # Commented out by Jon F. (Trip said it was old diagnostic code)
         reach_times = all_times[addresses].copy()
         reach_times -= float(start_time)
         reach_times = self.region.round_func(reach_times / tot.interval) * tot.interval
@@ -171,8 +170,8 @@ class Reservoir(Waterbody):
                 mean_runoff = np.mean(self.region.sam_output[0, reach_id])
                 self.region.sam_output[1, reach_id] = np.repeat(mean_runoff, self.region.n_dates)
 
-class Region:
 
+class Region:
     def __init__(self, inputs, paths, irf, write_to_file=False):
 
         self.id = inputs.region
@@ -204,7 +203,14 @@ class Region:
         self.read_upstream_lentics(paths.lentics_path)
 
         # Set whether travel times will be rounded up or down to the nearest day
-        self.round_func = np.int32 if tot.round_down else np.vectorize(lambda x: np.int32(np.round(x)))
+        # self.round_func = np.int32 if tot.round_down else np.vectorize(lambda x: np.int32(np.round(x)))
+
+    @staticmethod
+    def round_func(x):
+        if tot.round_down:
+            return np.int32(x)
+        else:
+            return np.int32(np.round(x))
 
     def cascade(self):
 
@@ -215,14 +221,17 @@ class Region:
             upstream_lakes = upstream_lakes[(upstream_lakes > 0) & (upstream_lakes != lake.id)]
             lake_bins[upstream_lakes.size].add(lake)
 
-        for lake_bin, lakes in sorted(lake_bins.items()):
-            for lake in lakes:
-                reaches = filter(None, map(self.reaches.get, lake.upstream_reaches))
-                yield reaches, lake
+        # TODO: Commented out by Jon F. and replaced with code below next TODO statement
+        # for lake_bin, lakes in sorted(lake_bins.items()):
+        #     for lake in lakes:
+        #         reaches = filter(None, map(self.reaches.get, lake.upstream_reaches))
+        #         yield reaches, lake
 
-        # Loop through reaches that have not yet been run (ostensibly those not upstream of any lake
-        remaining_reaches = filter(lambda x: not x.run, self.reaches.values())
-        yield remaining_reaches, None
+        # TODO: Altered by Jon F. to split up processing over each Lake Bin
+        for lake_bin, lakes in sorted(lake_bins.items()):
+            yield lake_bin, lakes, len(lake_bins[lake_bin])
+
+        yield None, None, 0  # No more lake_bins or lakes, return None for both to process the remaining reaches
 
     def map_reaches(self):
 

@@ -1,0 +1,96 @@
+# from concurrent.futures import ProcessPoolExecutor as Pool
+        import concurrent.futures
+        import multiprocessing
+
+        # nproc = multiprocessing.cpu_count()
+        nproc = 16  # TODO: Setting my number of processors
+        print("CPU cores = %s" % nproc)
+        # pool = Pool(max_workers=nproc)
+
+        lake_bin_counter = 1
+        for lake_bin, lakes, no_of_lakes in region.cascade():
+            print("Processing Lake Bin #%s, w/ No of lakes = %s" % (lake_bin_counter, no_of_lakes))
+
+            futures = []  # Container to store each future (each job submitted to executor)
+
+            with concurrent.futures.ProcessPoolExecutor(max_workers=nproc) as executor:
+                # Use a ProcessPoolExecutor for each Lake Bin
+
+                if lakes is not None:
+
+                    for lake in lakes:
+                        # Loop over each lake within the Lake Bin, sending each lake to its own process
+                        # If the # of upstream reaches in a lake is large, batch them into multiple processes
+
+                        # reaches = filter(None, map(region.reaches.get,
+                        #                  lake.upstream_reaches))
+
+                        # TODO: Changes "reaches" to a list so it can be indexed when chunking it
+                        reaches = [region.reaches.get(x) for x in lake.upstream_reaches]
+
+                        no_upstream_reaches = lake.upstream_reaches.size
+
+                        if no_upstream_reaches < 64:
+                            # When the # of upstream_reaches is small, send all of them to a single process
+                            executor.submit(functions.reach_calc_mp(reaches))
+
+                            # TODO: Old approach, where each reach is sent to its own process == no bueno
+                            # for reach in reaches:
+                            #     # Process reaches upstream of the reservoir (lake)
+                            #     # reach.run = True  # TODO: Fake running the reaches
+                            #     if not reach.run:
+                            #         # futures.append(executor.submit(reach.process()))  # Submit job to executor
+                            #         executor.submit(reach.process())
+                        else:
+
+                            # When the # of upstream_reaches is large, chunk them and send them to multiple processes
+                            chunk_size = int(no_upstream_reaches / nproc)
+
+                            # Generate a list of evenly distributed ranges to chunk the list of reaches by
+                            ranges = functions.reach_ranges_mp(chunk_size, nproc, no_upstream_reaches)
+
+                            for rng in ranges:
+                                # Submit batches of reaches to a process based on 'chunk_size'
+                                executor.submit(
+                                    functions.reach_calc_mp(
+                                        reaches[rng[0]:rng[1]]
+                                    )
+                                )
+
+                        # Process the reservoir (lake)
+                        # Note: Last batch of reaches will not have an associated reservoir (lake)
+                        futures.append(executor.submit(lake.process()))  # Submit job to executor
+
+                else:
+                    # Loop through reaches that have not yet been run (ostensibly those not upstream of any reservoir (lake)
+
+                    print("No Lakes")
+                    print(time.time())  # Print time it takes to get to last lake bin for Ohio River Valley (Region 05)
+                    # remaining_reaches = filter(lambda x: not x.run, region.reaches.values())  # Generator version
+                    remaining_reaches = [x for x in region.reaches.values() if not x.run]  # list version
+
+                    # TODO: Sequential
+
+                    # no_of_remaining_reaches = 1
+                    # for reach in remaining_reaches:
+                    #     no_of_remaining_reaches += 1
+                    #     if not reach.run:  # TODO: This is unnecessary
+                    #         reach.process()
+                    # print("Number of reaches remaining: %s" % no_of_remaining_reaches)
+
+                    # TODO: Parallel
+
+                    # no_of_remaining_reaches = 1
+                    print(len(remaining_reaches))
+                    print("Break")
+
+
+                    # print("Number of reaches remaining: %s" % no_of_remaining_reaches)
+
+            # TODO: This code is unnecessary now that I loop over Lake Bins, creating a process pool for each bin
+            # TODO: let code here merely for a reference of the concurrent.futures.wait() method. Remove later...
+            # Wait until all futures (jobs submitted to executor) are finished before continuing to next Lake Bin
+            # concurrent.futures.wait(futures, return_when=concurrent.futures.ALL_COMPLETED)
+            lake_bin_counter += 1
+
+        print("Total number of Lake Bins: %s" % lake_bin_counter)

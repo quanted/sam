@@ -1,8 +1,8 @@
 import datetime
 import os
 
-#from Tool.read import FilePath, ParameterSet
-from read import FilePath, ParameterSet
+from Tool.read import FilePath, ParameterSet
+# from read import FilePath, ParameterSet
 
 """
 Ohio
@@ -68,8 +68,8 @@ time_of_travel_params = {
 }
 
 # Preprocessed data repositories
-#path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
-path = r"C:\SAM_repository\MTB_Test08092016"
+path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
+# path = r"C:\SAM_repository\MTB_Test08092016"
 
 path_params = {
 
