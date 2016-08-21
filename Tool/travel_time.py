@@ -215,7 +215,7 @@ def time_of_travel(input_data):
         dayshed_counter += reach.daysheds
         convolution_counter += reach.times_convolved
 
-    return t_lakes, dayshed_counter, convolution_counter
+    return t_lakes, dayshed_counter, convolution_counter, len(region.reaches.values())
 
 
 # @timeit
@@ -235,15 +235,20 @@ def main(input_data=None, write=False, mp=False, nproc=16, log=False):
     print("Write = %s, Multiprocessing = %s, Logging = %s" % (write, mp, log))
     t_start = time.time()
     print(t_start)
-    output, no_daysheds, times_convolved = time_of_travel(input_data)
+    output, no_daysheds, times_convolved, total_no_reaches = time_of_travel(input_data)
     t_end = time.time()
     print(t_end)
 
     if log:
         ts = time.time()
-        f = open("tot_mp_%s_%4d.txt" % (nproc, ts), 'w')
-        f.write("%2.2f, %2.2f, %2.2f, Total Daysheds:, %s, Times Convolved:, %s" % (t_start, output, t_end, no_daysheds, times_convolved))
+        if mp:
+            filename = "tot_mp_"
+        else:
+            filename = "tot_seq_"
+        f = open(filename + "%s_%4d.txt" % (nproc, ts), 'w')
+        f.write("%2.2f, %2.2f, %2.2f, Total Daysheds:, %s, Times Convolved:, %s, Total Reaches, %s" %
+                (t_start, output, t_end, no_daysheds, times_convolved, total_no_reaches))
         f.close()
 
 if __name__ == "__main__":
-    main(write=False, log=True, mp=False, nproc=16)
+    main(write=False, log=True, mp=True, nproc=16)
