@@ -157,13 +157,13 @@ def time_of_travel(input_data):
 
                 for rng in ranges:
                     # Submit batches of reaches to a process based on 'chunk_size'
-                    futures.append(
-                        pool.submit(
-                            reach_calc(
-                                remaining_reaches[rng[0]:rng[1]]
-                            )
-                        )
+                    job = pool.submit(
+                        reach_calc,
+                        remaining_reaches[rng[0]:rng[1]]
                     )
+                    job.add_done_callback(callback_mp)
+                    futures.append(job)
+
 
             # Wait until all futures (jobs submitted to executor) are finished before continuing to next Lake Bin
             wait(futures, return_when=ALL_COMPLETED)
@@ -249,13 +249,13 @@ def main(input_data=None, write=False, mp=False, nproc=16, log=False):
     if log:
         ts = time.time()
         if mp:
-            filename = "tot_mp_"
+            filename = "tot_mp_%s" % nproc
         else:
             filename = "tot_seq_"
-        f = open(filename + "%s_%4d.txt" % (nproc, ts), 'w')
+        f = open(filename + "_%4d.txt" % ts, 'w')
         f.write("%2.2f, %2.2f, %2.2f, Total Daysheds:, %s, Times Convolved:, %s, Total Reaches, %s" %
                 (t_start, output, t_end, no_daysheds, times_convolved, total_no_reaches))
         f.close()
 
 if __name__ == "__main__":
-    main(write=False, log=True, mp=False, nproc=2)
+    main(write=False, log=True, mp=True, nproc=2)
