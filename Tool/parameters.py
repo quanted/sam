@@ -85,7 +85,7 @@ path_params = {
     "lentics_path": FilePath(os.path.join(path, "bin", "Preprocessed", "UpstreamFromLakes"), "region_{}.p"),
     "upstream_path": FilePath(os.path.join(path, "bin", "Preprocessed", "UpstreamPaths"), "upstream_{}.npz"),
     "sam_output_path": FilePath(os.path.join(path, "bin", "Preprocessed", "OutputCubes"), "output_{}.p"),
-    "tot_output_path": FilePath(os.path.join(path, "bin", "Outputs", "Convolution"), "{}_{}_{}.csv")
+    "tot_output_path": FilePath(os.path.join(path, "bin", "Outputs", "Convolution_seq"), "{}_{}_{}.csv")
 }
 
 date_params = {

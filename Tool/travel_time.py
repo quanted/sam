@@ -1,4 +1,6 @@
+import logging
 import time
+from functools import partial
 
 from Tool import read
 from Tool.parameters import paths
@@ -23,6 +25,10 @@ def timeit(method):
     return timed
 
 
+def callback_mp(future):
+    logging.info(future.exception())
+
+
 def reach_calc(reaches):
     """
     Function to send to each process when using multiprocessing. The number total number of reaches processed is
@@ -32,7 +38,10 @@ def reach_calc(reaches):
     """
     for reach in reaches:
         if not reach.run:
-            reach.process()
+            try:
+                reach.process()
+            except Exception as e:
+                print(str(e))
 
 
 def time_of_travel(input_data):
@@ -59,8 +68,9 @@ def time_of_travel(input_data):
     region = functions.Region(inputs, paths, irf, write_to_file)
 
     if input_data["multiprocess"]:
-
+        print("multiprocess")
         from Tool import mp
+        from concurrent.futures import wait, ALL_COMPLETED
 
         mp = mp.Multiprocessing(input_data['no_of_processes'])
         pool = mp.setup()
@@ -86,7 +96,9 @@ def time_of_travel(input_data):
 
                     if no_upstream_reaches < 64:
                         # When the # of upstream_reaches is small, send all of them to a single process
-                        futures.append(pool.submit(reach_calc(reaches)))
+                        futures.append(
+                            pool.submit(reach_calc(reaches))
+                        )
 
                         # TODO: Old approach, where each reach is sent to its own process == no bueno
                         # for reach in reaches:
@@ -117,8 +129,9 @@ def time_of_travel(input_data):
             else:
                 # Loop through reaches that have not yet been run (ostensibly those not upstream of any reservoir (lake)
 
-                # print("No Lakes")
-                # print(time.time())  # Print time it takes to get to last lake bin for Ohio River Valley (Region 05)
+                print("No Lakes")
+                t_lakes = time.time()
+                print(t_lakes)  # Print time it takes to get to last lake bin for Ohio River Valley (Region 05)
                 # remaining_reaches = filter(lambda x: not x.run, region.reaches.values())  # Generator version
                 remaining_reaches = [x for x in region.reaches.values() if not x.run]  # list version
 
@@ -146,13 +159,15 @@ def time_of_travel(input_data):
                     )
 
             # Wait until all futures (jobs submitted to executor) are finished before continuing to next Lake Bin
-            mp.wait_to_finish(futures)
+            wait(futures, return_when=ALL_COMPLETED)
+            # mp.wait_to_finish(futures)
 
             # lake_bin_counter += 1
         # print("Total number of Lake Bins: %s" % lake_bin_counter)
+        pool.shutdown()
 
-    else:
-
+    else:  # Sequential
+        print("Sequential")
         lake_bin_counter = 1
         for lake_bin, lakes, no_of_lakes in region.cascade():
 
@@ -179,6 +194,8 @@ def time_of_travel(input_data):
                     lake.process()
 
             else:
+                t_lakes = time.time()
+                print(t_lakes)
                 # print("%s, " % lake_bin_counter, end="")  # Print the Lake Bin #
                 # Loop through reaches that have not yet been run (ostensibly those not upstream of any reservoir (lake)
                 # print("0, ", end="")  # No lakes
@@ -193,9 +210,11 @@ def time_of_travel(input_data):
 
             lake_bin_counter += 1
 
+    return t_lakes
 
-@timeit
-def main(input_data=None, write=False):
+
+# @timeit
+def main(input_data=None, write=False, nproc=16, log=False):
 
     if input_data is None:
         input_data = {"inputs":
@@ -205,11 +224,24 @@ def main(input_data=None, write=False):
                            },
                       "run_type": "single",
                       "write": write,
-                      "multiprocess": True,
-                      "no_of_processes": 32  # Set to False if you want to use the no. of CPU cores on machine
+                      "multiprocess": False,
+                      "no_of_processes": 1  # Set to False if you want to use the no. of CPU cores on machine
                       }
-    print(time.time())
-    time_of_travel(input_data)
+    print("Write = %s" % write)
+    t_start = time.time()
+    print(t_start)
+    try:
+        output = time_of_travel(input_data)
+    except Exception as e:
+        print(str(e))
+    t_end = time.time()
+    print(t_end)
+
+    if log:
+        ts = time.time()
+        f = open("tot_mp_%s_%4d" % (nproc, ts), 'w')
+        f.write("%2.2f, %2.2f, %2.2f" % (t_start, output, t_end))
+        f.close()
 
 if __name__ == "__main__":
-    main(write=False)
+    main(write=True)

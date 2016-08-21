@@ -1,6 +1,6 @@
 from concurrent.futures import ProcessPoolExecutor as Pool
-from concurrent.futures import wait
-from concurrent.futures import ALL_COMPLETED
+# from concurrent.futures import wait
+# from concurrent.futures import ALL_COMPLETED
 # import concurrent.futures
 
 
@@ -17,9 +17,9 @@ class Multiprocessing:
 
         return Pool(max_workers=int(self.nproc))
 
-    @staticmethod
-    def wait_to_finish(futures):
-        wait(futures, return_when=ALL_COMPLETED)
+    # @staticmethod
+    # def wait_to_finish(futures):
+    #     return wait(futures, return_when=ALL_COMPLETED)
 
     def chunk(self, no_upstream_reaches):
         chunk_size = int(no_upstream_reaches / self.nproc)
