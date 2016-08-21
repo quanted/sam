@@ -55,6 +55,9 @@ class Reach(Waterbody):
 
         self._type = None
 
+        self.daysheds = 0
+        self.times_convolved = 0
+
     def aliased(self, alias):
         new_copy = copy.copy(self)
         new_copy.name = alias
@@ -119,14 +122,17 @@ class Reach(Waterbody):
 
         output_time_series = np.zeros((2, self.n_dates))  # (mass/runoff, dates)
 
+        self.daysheds = np.max(upstream_times) + 1  # Log the number of daysheds for this reaach
         # Get all tanks upstream
-        for tank in range(np.max(upstream_times) + 1):
+        # for tank in range(np.max(upstream_times) + 1):
+        for tank in range(self.daysheds):
 
             reaches_in_tank = upstream_reaches[upstream_times == tank]
 
             tank_time_series = self.region.sam_output[:2, reaches_in_tank].sum(axis=1)
 
             if tank > 0:
+                self.times_convolved += 1  # Number of times convolution is run counter
                 if self.mode == "convolved":  # Only perform convolution if timestep is not 0
                     irf = impulse_response.make(tank + 1, 1, self.n_dates)  # Get the convolution function
                     tank_time_series[0] = np.convolve(tank_time_series[0], irf)[:self.n_dates]  # Convolve mass

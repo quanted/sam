@@ -210,11 +210,16 @@ def time_of_travel(input_data):
 
             lake_bin_counter += 1
 
-    return t_lakes
+    dayshed_counter, convolution_counter = 0, 0
+    for reach in region.reaches.values():
+        dayshed_counter += reach.daysheds
+        convolution_counter += reach.times_convolved
+
+    return t_lakes, dayshed_counter, convolution_counter
 
 
 # @timeit
-def main(input_data=None, write=False, nproc=16, log=False):
+def main(input_data=None, write=False, mp=False, nproc=16, log=False):
 
     if input_data is None:
         input_data = {"inputs":
@@ -224,24 +229,21 @@ def main(input_data=None, write=False, nproc=16, log=False):
                            },
                       "run_type": "single",
                       "write": write,
-                      "multiprocess": False,
-                      "no_of_processes": 1  # Set to False if you want to use the no. of CPU cores on machine
+                      "multiprocess": mp,
+                      "no_of_processes": nproc  # Set to False if you want to use the no. of CPU cores on machine
                       }
-    print("Write = %s" % write)
+    print("Write = %s, Multiprocessing = %s, Logging = %s" % (write, mp, log))
     t_start = time.time()
     print(t_start)
-    try:
-        output = time_of_travel(input_data)
-    except Exception as e:
-        print(str(e))
+    output, no_daysheds, times_convolved = time_of_travel(input_data)
     t_end = time.time()
     print(t_end)
 
     if log:
         ts = time.time()
-        f = open("tot_mp_%s_%4d" % (nproc, ts), 'w')
-        f.write("%2.2f, %2.2f, %2.2f" % (t_start, output, t_end))
+        f = open("tot_mp_%s_%4d.txt" % (nproc, ts), 'w')
+        f.write("%2.2f, %2.2f, %2.2f, Total Daysheds:, %s, Times Convolved:, %s" % (t_start, output, t_end, no_daysheds, times_convolved))
         f.close()
 
 if __name__ == "__main__":
-    main(write=True)
+    main(write=False, log=True, mp=False, nproc=16)
