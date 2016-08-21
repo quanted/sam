@@ -26,7 +26,9 @@ def timeit(method):
 
 
 def callback_mp(future):
-    logging.info(future.exception())
+    print(future.result())
+    if future.exception():
+        print(future.exception())
 
 
 def reach_calc(reaches):
@@ -36,12 +38,13 @@ def reach_calc(reaches):
     This function is a batch of reaches to be processed in a single process.
     :param reaches: list of Reach class instances
     """
+    t1 = time.time()
     for reach in reaches:
         if not reach.run:
-            try:
-                reach.process()
-            except Exception as e:
-                print(str(e))
+            reach.process()
+
+    t2 = time.time()
+    return "Batch submitted. %s jobs took %2.2f sec" % (len(reaches), t2 - t1)
 
 
 def time_of_travel(input_data):
@@ -96,9 +99,12 @@ def time_of_travel(input_data):
 
                     if no_upstream_reaches < 64:
                         # When the # of upstream_reaches is small, send all of them to a single process
-                        futures.append(
-                            pool.submit(reach_calc(reaches))
+                        job = pool.submit(
+                                reach_calc,
+                                reaches
                         )
+                        job.add_done_callback(callback_mp)
+                        futures.append(job)
 
                         # TODO: Old approach, where each reach is sent to its own process == no bueno
                         # for reach in reaches:
@@ -114,17 +120,18 @@ def time_of_travel(input_data):
 
                         for rng in ranges:
                             # Submit batches of reaches to a process based on 'chunk_size'
-                            futures.append(
-                                pool.submit(
-                                    reach_calc(
-                                        reaches[rng[0]:rng[1]]
-                                    )
-                                )
+                            job = pool.submit(
+                                    reach_calc,
+                                    reaches[rng[0]:rng[1]]
                             )
+                            job.add_done_callback(callback_mp)
+                            futures.append(job)
 
                     # Process the reservoir (lake)
                     # Note: Last batch of reaches will not have an associated reservoir (lake)
-                    futures.append(pool.submit(lake.process()))  # Submit job to executor
+                    job = pool.submit(lake.process)  # Submit job to executor
+                    job.add_done_callback(callback_mp)
+                    futures.append(job)
 
             else:
                 # Loop through reaches that have not yet been run (ostensibly those not upstream of any reservoir (lake)
@@ -251,4 +258,4 @@ def main(input_data=None, write=False, mp=False, nproc=16, log=False):
         f.close()
 
 if __name__ == "__main__":
-    main(write=False, log=True, mp=True, nproc=16)
+    main(write=False, log=True, mp=True, nproc=2)

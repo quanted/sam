@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import copy
 
+import time
+
 from Tool import read, write
 from Tool.parameters import time_of_travel as tot
 
@@ -161,7 +163,7 @@ class Reservoir(Waterbody):
 
     def process(self, convolve_runoff=False):
         """Convolve each reach upstream of a reservoir"""
-
+        t1 = time.time()
         # Impulse response function for reservoir
         irf = self.region.irf.make(1, self.residence_time, self.region.n_dates)
         for reach_id in self.upstream_reaches:
@@ -176,6 +178,8 @@ class Reservoir(Waterbody):
                 mean_runoff = np.mean(self.region.sam_output[0, reach_id])
                 self.region.sam_output[1, reach_id] = np.repeat(mean_runoff, self.region.n_dates)
 
+        t2 = time.time()
+        return "Lake convolution process took %2.2f sec" % (t2 - t1)
 
 class Region:
     def __init__(self, inputs, paths, irf, write_to_file=False):
