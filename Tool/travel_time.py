@@ -69,10 +69,10 @@ def time_of_travel(input_data):
 
     if input_data["multiprocess"]:
         print("multiprocess")
-        from Tool import mp
+        from Tool import tot_multiprocess
         from concurrent.futures import wait, ALL_COMPLETED
 
-        mp = mp.Multiprocessing(input_data['no_of_processes'])
+        mp = tot_multiprocess.Multiprocessing(input_data['no_of_processes'])
         pool = mp.setup()
 
         # lake_bin_counter = 1
