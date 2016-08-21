@@ -179,7 +179,8 @@ class Reservoir(Waterbody):
                 self.region.sam_output[1, reach_id] = np.repeat(mean_runoff, self.region.n_dates)
 
         t2 = time.time()
-        return "Lake convolution process took %2.2f sec" % (t2 - t1)
+        return "Lake convolution for %s upstream reaches took %2.2f sec" % (len(self.upstream_reaches), (t2 - t1))
+
 
 class Region:
     def __init__(self, inputs, paths, irf, write_to_file=False):

@@ -44,7 +44,7 @@ def reach_calc(reaches):
             reach.process()
 
     t2 = time.time()
-    return "Batch submitted. %s jobs took %2.2f sec" % (len(reaches), t2 - t1)
+    return "Batch submitted. %s reaches took %2.2f sec" % (len(reaches), t2 - t1)
 
 
 def time_of_travel(input_data):
@@ -258,4 +258,4 @@ def main(input_data=None, write=False, mp=False, nproc=16, log=False):
         f.close()
 
 if __name__ == "__main__":
-    main(write=False, log=True, mp=True, nproc=2)
+    main(write=False, log=True, mp=False, nproc=2)
