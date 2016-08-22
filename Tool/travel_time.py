@@ -103,7 +103,7 @@ def time_of_travel(input_data):
                                 reach_calc,
                                 reaches
                         )
-                        job.add_done_callback(callback_mp)
+                        # job.add_done_callback(callback_mp)
                         futures.append(job)
 
                         # TODO: Old approach, where each reach is sent to its own process == no bueno
@@ -124,13 +124,13 @@ def time_of_travel(input_data):
                                     reach_calc,
                                     reaches[rng[0]:rng[1]]
                             )
-                            job.add_done_callback(callback_mp)
+                            # job.add_done_callback(callback_mp)
                             futures.append(job)
 
                     # Process the reservoir (lake)
                     # Note: Last batch of reaches will not have an associated reservoir (lake)
                     job = pool.submit(lake.process)  # Submit job to executor
-                    job.add_done_callback(callback_mp)
+                    # job.add_done_callback(callback_mp)
                     futures.append(job)
 
             else:
@@ -161,9 +161,8 @@ def time_of_travel(input_data):
                         reach_calc,
                         remaining_reaches[rng[0]:rng[1]]
                     )
-                    job.add_done_callback(callback_mp)
+                    # job.add_done_callback(callback_mp)
                     futures.append(job)
-
 
             # Wait until all futures (jobs submitted to executor) are finished before continuing to next Lake Bin
             wait(futures, return_when=ALL_COMPLETED)
@@ -258,4 +257,4 @@ def main(input_data=None, write=False, mp=False, nproc=16, log=False):
         f.close()
 
 if __name__ == "__main__":
-    main(write=False, log=True, mp=True, nproc=2)
+    main(write=False, log=True, mp=True, nproc=48)
