@@ -1,90 +1,38 @@
-import numpy as np
-
-from Tool import read, write
-from Tool import pesticide_functions as functions
-from Tool.parameters import paths as p
+from RestructuredTool import functions as func
+from RestructuredTool.parameters import paths as p
 
 
 def pesticide_calculator(input_data):
-
     # Initialize parameters from front end
-    inputs = read.InputParams(input_data)
+    inputs = func.InputFile(input_data)
 
-    # Locate and index recipe files by reach ID and year
-    recipe_map = read.map_recipes(p.recipe_path, inputs.years)
+    print("Initializing watershed...")
+    region = func.Hydroregion(
+        inputs, p.recipe_path, p.map_path, p.scenario_dir, p.flow_dir, p.upstream_path, p.lakefile_path, p.lentics_path)
 
-    # Loop through recipes and corresponding flows listed in flow file
-    for recipe_id, flow in read.flows(p.flow_file, inputs.dates, filter=recipe_map.keys()):
+    print("Processing scenarios...")
+    scenario_matrix = func.ScenarioMatrix(inputs, region, p.scenario_dir)
+    inputs.years = [2010]
+    for year in inputs.years:
 
-        print(recipe_id)
+        print("Processing recipes for {}...".format(year))
+        recipe_matrix = func.RecipeMatrix(inputs, region, scenario_matrix, p.output_path)
 
-        # Read the recipe file that corresponds to the Recipe ID and construct a list of scenarios
-        recipe = read.Recipe(recipe_map, recipe_id, p.scenario_dir, inputs)
+        for reaches, lake in region.cascade():
 
-        # Loop through each of the years of surface hydrology (runoff and erosion) in the scenario
-        for year, runoff_and_erosion in read.hydro(p.hydro_path, recipe.id, inputs.date.hydro_offset, inputs.years):
+            recipe_matrix.process_recipes(reaches, year)
 
-            # Initialize array for cumulative values of runoff (first row) and erosion (second row)
-            transported_mass = np.zeros(runoff_and_erosion.shape)
-
-            # Loop through each scenario for the catchment-year
-            for scenario in recipe.scenarios[year]:
-
-                # Compute pesticide application that winds up in soil
-                pesticide_mass_soil = functions.applications(inputs, scenario)
-
-                # Determine the loading of pesticide into runoff and erosion
-                transported_mass += functions.transport(pesticide_mass_soil, scenario, inputs) * scenario.area
-
-            # Compute concentration in water
-            total_flow, baseflow, runoff_conc, aqconc_avg_wb, aqconc_avg, aq_peak = \
-                functions.waterbody_concentration(flow, runoff_and_erosion, transported_mass,
-                                                  inputs.process_benthic, inputs.degradation_aqueous, inputs.koc)
-
-            # Write daily output
-            if inputs.write_daily_files:
-
-                write.daily(p.output_path, recipe_id, year, inputs.dates, total_flow, baseflow, runoff_and_erosion,
-                            aqconc_avg_wb, runoff_conc, transported_mass, aqconc_avg, aq_peak)
+            recipe_matrix.time_of_travel(reaches, lake, inputs.convolution_mode)
 
 
 def main(input_data=None):
     if input_data is None:
-        input_data = {"inputs":
-                          {"scenario_selection": "0",
-                           "crop": "10 40 15 18",
-                           "refine": "uniform_step",
-                           "output_time_avg_conc": "1",
-                           "application_rate": "1.3",
-                           "crop_list_no": "10,40,15,18,140",
-                           "output_avg_days": "4",
-                           "workers": "16",
-                           "crop_number": "4",
-                           "chemical_name": "Custom",
-                           "soil_metabolism_hl": "123",
-                           "refine_time_window2": "0",
-                           "refine_time_window1": "50",
-                           "coefficient": "1",
-                           "sim_date_1stapp": "04/20/1984",
-                           "output_tox_value": "4",
-                           "output_format": "3",
-                           "sim_date_start": "01/01/2000",
-                           "sim_type": "eco",
-                           "output_time_avg_option": "2",
-                           "output_tox_thres_exceed": "1",
-                           "processes": "1",
-                           "sim_date_end": "12/31/2014",
-                           "application_method": "1",
-                           "region": "Ohio Valley",
-                           "apps_per_year": "1",
-                           "output_type": "2",
-                           "refine_percent_applied2": "50",
-                           "koc": "100",
-                           "refine_percent_applied1": "50"},
-                      "run_type": "single"}
-
+        import chemicals
+        input_data = chemicals.chlorpyrifos
     pesticide_calculator(input_data)
 
+
+from chemicals import chlorpyrifos, atrazine
 
 if __name__ == "__main__":
     time_it = True
@@ -92,4 +40,4 @@ if __name__ == "__main__":
         import cProfile
         cProfile.run('main()')
     else:
-        main()
+        main(chlorpyrifos)
