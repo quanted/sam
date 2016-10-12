@@ -6,8 +6,6 @@ class FilePath(object):
     def __init__(self, dirname, basename):
         self.dir = dirname
         self.base = basename
-        self.full_path = os.path.join(dirname, basename)
-        self.ext = os.path.splitext(basename)[1]
 
     def __repr__(self):
         return self.full_path
@@ -15,6 +13,13 @@ class FilePath(object):
     @property
     def exists(self):
         return os.path.isfile(self.full_path)
+
+    @property
+    def ext(self):
+        return os.path.splitext(self.base)[1]
+    @property
+    def full_path(self):
+        return os.path.join(self.dir, self.base)
 
     def format(self, *args):
         return self.full_path.format(*args)

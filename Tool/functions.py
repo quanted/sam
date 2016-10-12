@@ -11,7 +11,6 @@ from numba import jit
 from tempfile import mkdtemp
 from collections import defaultdict, namedtuple
 
-
 # 1 - Write contributions
 # 1 - Check for lentic reach in ToT, calculator
 # 2 - eliminate missing scenarios in confine?
@@ -41,8 +40,8 @@ class Hydroregion:
         self.flow_file = FlowMatrix(flowfile_dir, self.id, i.dates)
         self.upstream = self.read_upstream_file(upstream_dir)
         self.lake_table = self.read_lake_file(lakefile_dir)
-        self.lentics = self.unpickle(lentics_dir.format(self.id))
-        self.recipe_map = self.unpickle(map_path)
+        self.lentics = unpickle(lentics_dir.format(self.id))
+        self.recipe_map = unpickle(map_path.full_path)
 
         # Confine to available reaches and assess what's missing
         self.active_reaches, self.active_lakes, self.active_scenarios = self.confine(scenario_dir, report=False)
@@ -118,11 +117,6 @@ class Hydroregion:
         waterbody_table = waterbody_table.loc[waterbody_table.ResidenceTime >= minimum_residence_time]
 
         return waterbody_table
-
-    @staticmethod
-    def unpickle(pickle_file):
-        with open(pickle_file, 'rb') as f:
-            return pickle.load(f)
 
     def read_upstream_file(self, upstream_path):
         upstream_file = upstream_path.format(self.id)
@@ -230,8 +224,7 @@ class Recipe(object):
 
         self._flow = None
 
-    def calculate_pesticide(self, scenario_matrix):
-
+    def pull_scenarios(self, scenario_matrix):
         # Initialize cumulative data
         cumulative = np.zeros((scenario_matrix.shape[1], self.i.n_dates))  # Runoff mass, erosion mass, runoff, erosion
         contributions = {}  # What mass is coming from what crop
@@ -247,22 +240,23 @@ class Recipe(object):
                 contributions[int(scenario_id.split("cdl")[1])] = output_total[:2].sum()  # Store relative contribution
         del array
 
-        # Unpack cumulative attributes
-        runoff_mass, erosion_mass, runoff, erosion = cumulative
-
         # Compute proportion of contribution from each crop
-        total_mass = np.array([runoff_mass, erosion_mass]).sum()  # Sum of all mass transported in runoff and erosion
+        total_mass = cumulative[:2].sum()  # Sum of all mass transported in runoff and erosion
         contributions = {"Crop_{}".format(crop): mass / total_mass for crop, mass in contributions.items()}
+
+        return contributions, cumulative
+
+    def calculate_pesticide(self, scenario_matrix):
+
+        # Pull scenario results for all scenarios in recipe
+        contributions, (runoff_mass, erosion_mass, runoff, erosion) = self.pull_scenarios(scenario_matrix)
 
         # Get hydrological parameters
         hydro = self.hydrology(runoff, erosion)
 
         # Compute concentration in water
         runoff_conc, erosion_conc, total_conc, wc_conc, benthic_conc, wc_peak, benthic_peak = \
-            self.waterbody_concentration(hydro, cumulative)
-
-        # print(10, list(map(lambda x: x.sum(),
-        #                   (runoff_conc, erosion_conc, total_conc, wc_conc, benthic_conc, wc_peak, benthic_peak))))
+            self.waterbody_concentration(hydro, runoff_mass, erosion_mass, runoff, erosion)
 
         output = OutputTable(self.id, self.i.dates,
                              hydro.total_flow, hydro.baseflow, runoff, runoff_mass, erosion, erosion_mass,
@@ -294,15 +288,12 @@ class Recipe(object):
 
         return Hydro(total_flow, baseflow, depth, surface_area, daily_volume, volume)
 
-    def waterbody_concentration(self, hydro, cumulative):
+    def waterbody_concentration(self, hydro, runoff_mass, erosion_mass, total_runoff, total_erosion):
 
         from parameters import soil
 
-        runoff_mass, erosion_mass, total_runoff, total_erosion = cumulative
-        # print(9, list(map(lambda x: x.sum(), (runoff_mass, erosion_mass, total_runoff, total_erosion))))
-
         # Compute daily concentration from runoff
-        conc_days = ((runoff_mass > 0.0) & (hydro.vol > 0.0))
+        conc_days = np.where((runoff_mass > 0.0) & (hydro.vol > 0.0))[0]
 
         daily_concentration = np.zeros(self.i.n_dates)
         daily_concentration[conc_days] = runoff_mass[conc_days] / hydro.vol[conc_days]
@@ -499,6 +490,9 @@ class OutputTable(object):
                        "WC_Peak(ug/L)", "Ben_Peak(ug/L)"]
 
     def write(self, output_path, year, mode):
+        if not os.path.exists(output_path.dir):
+            print(output_path.dir)
+            os.mkdir(output_path.dir)
         output_path = output_path.format(self.id, year, mode)
         df = pd.DataFrame(self.data.T, self.dates, self.header)
         df.to_csv(output_path, index_label="Date")
@@ -609,33 +603,32 @@ class ImpulseResponseMatrix(MemoryMatrix):
 
 
 class RecipeMatrix(MemoryMatrix):
-    def __init__(self, i, region, scenario_matrix, output_path):
+    def __init__(self, i, year, region, scenario_matrix, output_path):
         self.i = i
-        self.n_dates = i.n_dates
+        self.year = year
         self.region = region
         self.output_path = output_path
         self.scenario_matrix = scenario_matrix
+
+        self.n_dates = i.n_dates
+        self.recipe_map = self.region.recipe_map[self.year]
         self.header = ("transported_mass", "runoff", "baseflow")
         self.recipe_ids = sorted(region.active_reaches)
         self.processed = set()
         self.finished = set()
 
-        from parameters import time_of_travel
-        self.convolve_runoff = time_of_travel.convolve_runoff
-
         super(RecipeMatrix, self).__init__(self.recipe_ids, i.n_dates, self.header, "recipe")
 
         self.contribution_by_crop = pd.DataFrame(columns=["Crop_{}".format(crop) for crop in sorted(self.i.all_crops)])
 
-    def process_recipes(self, recipe_ids, year):
+    def process_recipes(self, recipe_ids, output_path):
         for n, recipe_id in enumerate(recipe_ids):
-            scenario_areas = self.region.recipe_map[year].get(recipe_id)
+            scenario_areas = self.region.recipe_map[self.year].get(recipe_id)
             recipe = Recipe(self.i, self.region.flow_file, recipe_id, scenario_areas)
             if recipe and recipe.flow:
                 results, contributions = recipe.calculate_pesticide(self.scenario_matrix)
                 if self.i.write_local_files:
-                    pass
-                    # results.write(output_path, year, mode="local")
+                    results.write(output_path, self.year, mode="local")
 
                 # Store pesticide calculator outputs in matrix for recall by time of travel routines
                 transported_mass = np.array([results.runoff_mass, results.erosion_mass]).sum(axis=0)
@@ -650,10 +643,12 @@ class RecipeMatrix(MemoryMatrix):
 
     def time_of_travel(self, recipe_ids, lake, modes):
 
+        from parameters import time_of_travel
+
+        convolve_runoff = time_of_travel.convolve_runoff
+
         active_recipes = self.region.active_reaches & set(recipe_ids) & self.processed
-        uh_oh = set(recipe_ids) - self.processed
-        if uh_oh:
-            print(len(uh_oh))
+
         reaches_to_run = active_recipes - self.finished
 
         for reach in reaches_to_run:
@@ -699,7 +694,7 @@ class RecipeMatrix(MemoryMatrix):
                 if old_record.any():
                     old_mass, old_runoff, baseflow = old_record
                     new_mass = np.convolve(old_mass, irf)[:self.n_dates]
-                    if self.convolve_runoff:  # Convolve runoff
+                    if convolve_runoff:  # Convolve runoff
                         new_runoff = np.convolve(old_runoff, irf)[:self.n_dates]
                     else:  # Flatten runoff
                         new_runoff = np.repeat(np.mean(old_runoff), self.n_dates)
@@ -729,9 +724,6 @@ class ScenarioMatrix(MemoryMatrix):
             if not self.exists:
                 self.populate()
 
-                # for i in range(self.shape[0]):
-                #    print(i, self.fetch(i, raw_index=True).sum())
-
     def populate(self):
         array = self.writer
         for n, scenario_id in enumerate(self.scenarios):
@@ -739,7 +731,6 @@ class ScenarioMatrix(MemoryMatrix):
                 print("{}/{}".format(n + 1, len(self.scenarios)))
             array[n] = Scenario(self.i, scenario_id, self.scenario_dir).process()
         del array
-        # print(len(good), len(self.region.missing_scenarios))
 
 
 def impulse_response_function(alpha, beta, length):
@@ -914,3 +905,8 @@ def solute_holding_capacity(depth, surface_area, koc):
     omega = benthic.d_over_dx / benthic.depth  # (m3/hr)/(3600 s/hr)
 
     return fw1, fw2, theta, sed_conv_factor, omega
+
+
+def unpickle(pickle_file):
+    with open(pickle_file, 'rb') as f:
+        return pickle.load(f)
