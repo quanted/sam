@@ -86,40 +86,33 @@ time_of_travel_params = {
 
 # Preprocessed data repositories
 # path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
-path = r"C:\SAM_repository"
+path = r"..\..\.."
 
 path_params = {
-
-    "flow_dir": os.path.join(r"C:\SAM_repository", "FlowFiles"),
-    "scenario_dir": os.path.join(path, "MTB_Test08092016", "Scenarios"),
-    "recipe_path": FilePath(os.path.join(path, "MTB_Test08092016", "Recipes"), "nhd_recipe_{}_{}.txt"),
-    "map_path": FilePath(os.path.join(path, "MTB_Test08092016", "InputMaps"), "mtb100616.p"),
-    "output_path": FilePath(os.path.join(path, "MTB_Test08092016", "Outputs"), "eco_{}_{}_{}.csv"),
-    "lakefile_path": FilePath(os.path.join(path, "LakeFiles"), "region_{}.csv"),
-    "lentics_path": FilePath(os.path.join(path, "LakeFiles"), "region_{}_lentics.p"),
-    "upstream_path": FilePath(os.path.join(path, "Upstream"), "upstream_{}.npz"),
-}
-
-# JCH - eventually in scenario?
-date_params = {
-    "scenario_start": datetime.date(1961, 1, 1)
+    "flow_dir": os.path.join(path, "Preprocessed", "FlowFiles"),
+    "scenario_dir": os.path.join(path, "Preprocessed", "Scenarios"),  # may need to modify
+    "recipe_path": FilePath(os.path.join(path, "Preprocessed", "Recipes"), "nhd_recipe_{}_{}.txt"),
+    "map_path": FilePath(os.path.join(path, "Preprocessed", "InputMaps"), "mtb122016.p"),  # may need to modify
+    "output_path": FilePath(os.path.join(path, "Results", "Python_cn88"), "eco_{}_{}_{}.csv"),  # can modify if desired
+    "lakefile_path": FilePath(os.path.join(path, "Preprocessed", "LakeFiles"), "region_{}.csv"),
+    "lentics_path": FilePath(os.path.join(path, "Preprocessed", "LakeFiles"), "region_{}_lentics.p"),
+    "upstream_path": FilePath(os.path.join(path, "Preprocessed", "Upstream"), "upstream_{}.npz"),
 }
 
 # To be added to input file
 to_be_added_params = {
     # Hardwired stuff to get added to the front end
     "years": [2010, 2011, 2012, 2013],  # JCH - replace
-    "process_benthic": False,
-    "process_erosion": False,
+    "process_benthic": True,
+    "process_erosion": True,
     "write_local_files": True,
-    "convolution_mode": ("convolved",),  # "unconvolved", "aggregated"
+    "convolution_mode": [],  # "unconvolved", "aggregated"
     "cropstage": 2,  # JCH - replace
     "stagedays": 14,  # JCH - replace
     "stageflag": 2,  # JCH - replace
     "appnumrec_init": 0  # JCH - replace
 }
 
-starting_dates = ParameterSet(date_params)
 plant = ParameterSet(plant_params)
 soil = ParameterSet(soil_params)
 water_column = ParameterSet(water_column_params)

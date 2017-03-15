@@ -3,7 +3,7 @@ chlorpyrifos = \
          {"chemical_name": "chlorpyrifos",
           "region": "07",
           "applications":
-          #crop, event, offset, window1, pct_applied1, window2, pct_applied2, rate, method, refine
+          #crop,event,offset,window1,pct_applied1,window2,pct_applied2,rate,method,refine
               "10,emergence,3,10,100,0,0,1.1,foliar,uniform_step\n"
               "10,emergence,23,10,100,0,0,1.1,foliar,uniform_step\n"
               "40,emergence,-7,10,100,0,0,1.1,ground,uniform_step\n"
@@ -43,7 +43,8 @@ atrazine = \
          {"chemical_name": "atrazine",
           "region": "07",
           "applications":
-              "10, emergence, -14, 50, 0, 100, 0, 1.32, ground, uniform_step",
+              #crop,event,offset,window1,pct_applied1,window2,pct_applied2,rate,method,refine
+              "10,plant,14,50,100,0,0,1.32,ground,uniform_step",
           "soil_hl": "139",
           "wc_metabolism_hl": "277",
           "ben_metabolism_hl": "277",

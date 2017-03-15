@@ -56,25 +56,20 @@ def read_dbf(dbf_file, out_fields=None, include_fields=False):
 
 
 def get_flows(nhd_folder):
-    flows = defaultdict(list)
+    flows = defaultdict(lambda: np.zeros(24))
     erom_dir = os.path.join(nhd_folder, "EROMExtension")
     for month in range(1, 13):
-        month = str(month).zfill(2)
-        erom_file = os.path.join(erom_dir, "EROM_{}0001.dbf".format(month))
+        erom_file = os.path.join(erom_dir, "EROM_{}0001.dbf".format(str(month).zfill(2)))
         if os.path.isfile(erom_file):
             for comid, q, v in read_dbf(erom_file, ["COMID", "Q0001E", "V0001E"]):
-                flows[comid] += [q, v]
-
+                flows[comid][month - 1] = q * 2446.58  # cfs -> cmd
+                flows[comid][month + 11] = v * 26334.7  # f/s -> md
     return flows
 
 
 def get_lengths(nhd_folder):
     attribute_file = os.path.join(nhd_folder, "NHDPlusAttributes", "PlusFlowlineVAA.dbf")
     return dict(read_dbf(attribute_file, ["ComID", "LengthKM"]))
-
-
-def stream_width(xc, a=4.2804, b=0.5525):
-    return a * math.pow(xc, b)
 
 
 def compile_and_compute(flows, lengths):
@@ -86,14 +81,13 @@ def compile_and_compute(flows, lengths):
     fields = ["COMID", "Length"] + ["{}_{}".format(cat, month + 1) for cat in ("Q", "V") for month in range(12)]
     for comid in all_found:
         l = lengths[comid]
-        row = [comid, l] + flows[comid]
+        row = np.concatenate([np.array([comid, l]), flows[comid]])
         out_data.append(row)
     return np.array(np.array(out_data), dtype=np.float32)
 
 def generate_flow_files(nhd_path, out_folder):
 
     for region, region_dir in get_nhd(nhd_path).items():
-        print(region)
         outfile = os.path.join(out_folder, "region_{}.dat".format(region))
         keyfile = os.path.join(out_folder, "region_{}_key.npy".format(region))
         flows = get_flows(region_dir)
@@ -108,7 +102,7 @@ def generate_flow_files(nhd_path, out_folder):
 
 def main():
     nhd_path = r'T:\NationalData\NHDPlusV2'
-    out_folder = r'C:\SAM_repository\FlowFiles'
+    out_folder = r'C:\Users\Trip Hook\Desktop\SAM\Preprocessed\FlowFiles'
     generate_flow_files(nhd_path, out_folder)
 
 if __name__ == "__main__":
