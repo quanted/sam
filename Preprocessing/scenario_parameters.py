@@ -16,11 +16,11 @@ number_soil_incr = 21  # total number of soil compartments: 1 top 2-cm compartme
 delta_x = np.array([0.02] + [0.05] * (number_soil_incr - 1))
 
 input_types = dict([
-    ('plntbeg', int),
-    ('hvstbeg', int),
-    ('cdl', int),
-    ('cokey', str),
-    ('date', str),
+    ('plntbeg', float),
+    ('hvstbeg', float),  # jch - these need to be float because the NA values prevent reading as integer
+    ('cdl', int),  # not needed
+    ('cokey', str),  # not needed
+    ('date', str),  # probably not needed
     ('hsg', str),
     ('leachpot', str),
     ('mukey', str),

@@ -1,0 +1,21 @@
+Goals:
+
+Only using top layer?
+
+Should plant factor be zero for non-ag crops?
+
+In the Fortran code, writing of soil_water_m_all and velocity_all is confined to top soil increment (increments_1).
+Why bother calculating other increments?  Also bulk density
+
+Velocity only written if there's action in the top layer?
+
+What's with velocity(0, :) in the fortran code?
+
+Erosion day and erosion month not populated.  As a result "index_day" is being calculated for month 'zero', which
+means the first indices of date_holder are -31
+The whole date_holder thing doesn't make much sense to me
+
+cn_ag and cn_fallow are entered in opposite orders
+
+If bad input data is detected and run is skipped, is carry-over output still written?
+

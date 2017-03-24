@@ -4,7 +4,8 @@ from numba.types import NPDatetime
 
 
 @njit
-def initialize_soil(delta_x, increments_1, increments_2, bd_5, fc_5, wp_5, bd_20, fc_20, wp_20):
+def initialize_soil(delta_x, increments_1, increments_2,
+                            bd_5, fc_5, wp_5, bd_20, fc_20, wp_20):
     """ Initialize soil properties """
     soil_properties = np.zeros((5, increments_1 + increments_2))
 
@@ -12,6 +13,7 @@ def initialize_soil(delta_x, increments_1, increments_2, bd_5, fc_5, wp_5, bd_20
         soil_properties[0, i] = bd_5 * 1000.  # kg/m3
         soil_properties[1, i], soil_properties[2, i], soil_properties[3, i] = \
             fc_5 * delta_x[i], fc_5 * delta_x[i], wp_5 * delta_x[i]
+
     for i in range(increments_1, increments_1 + increments_2):
         soil_properties[0, i] = bd_20 * 1000.  # kg/m3
         soil_properties[1, i], soil_properties[2, i], soil_properties[3, i] = \
@@ -209,9 +211,14 @@ def process_erosion(num_records, slope, manning_n, runoff, rain, cn, usle_klscp,
             t_conc = 0
             ia_over_p = 0
             if slope > 0:
-                t_conc = 0.007 * (manning_n * l_sheet) ** 0.8 / \
-                         np.sqrt(rain[i] / 0.0254) / \
-                         slope ** 0.4 + l_shallow / 58084.2 / np.sqrt(slope)
+                # Time of conc is in hours by TR-55
+                # Time of conc for shallow conc flow: T = L_shallow/(3600.*v)
+                # v = average velocity, based on unpaved v = 16.1345(slope)^0.5
+                # By Velocity method (units are in ft, inch, hour)
+                t_conc_sheet = (0.007 * (manning_n * l_sheet) ** 0.8) / (np.sqrt(rain[i] / 0.0254) * (slope ** 0.4))
+                t_conc_shallow = l_shallow / 58084.2 / np.sqrt(slope)
+                t_conc = t_conc_sheet + t_conc_shallow
+
             if rain[i] > 0:
                 ia_over_p = .0254 * (200. / cn[i] - 2.) / rain[i]  # 0.2 * s, in inches
 
@@ -226,10 +233,16 @@ def process_erosion(num_records, slope, manning_n, runoff, rain, cn, usle_klscp,
                 interp = (lower % 1) * delta
                 c = raintype[int(lower)] + interp
 
-            # Erosion loss (kg) - MUSLE equation (Williams, 1975)
+#peak_discharge = temp_variable*(afield/2589988.11 sqmi)*(runoff*39.370079) /(Afield*10.7639104 ft2/m2)*(3600 sec/hr)*(304.8 mm/ft)
+#               = temp_variable*runoff*3600.*304.8*39.370079/2589988.11/10.7639104
+            # 1.54958679 = 3600.*304.8*39.370079/2589988.11/10.7639104
+
+
             peak_discharge = 10. ** (c[0] + c[1] * np.log10(t_conc) + c[2] * (np.log10(t_conc)) ** 2)
             qp = 1.54958679 * runoff[i] * peak_discharge
             erosion_loss[i] = 1.586 * (runoff[i] * 1000. * qp) ** .56 * usle_klscp[i] * 1000.  # kg/d
+
+
 
     return erosion_loss
 

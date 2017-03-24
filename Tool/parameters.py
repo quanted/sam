@@ -17,6 +17,7 @@ class FilePath(object):
     @property
     def ext(self):
         return os.path.splitext(self.base)[1]
+
     @property
     def full_path(self):
         return os.path.join(self.dir, self.base)
@@ -86,14 +87,11 @@ time_of_travel_params = {
 
 # Preprocessed data repositories
 # path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
-path = r"..\..\.."
-
+path = r"..\bin"
 path_params = {
     "flow_dir": os.path.join(path, "Preprocessed", "FlowFiles"),
-    "scenario_dir": os.path.join(path, "Preprocessed", "Scenarios"),  # may need to modify
-    "recipe_path": FilePath(os.path.join(path, "Preprocessed", "Recipes"), "nhd_recipe_{}_{}.txt"),
     "map_path": FilePath(os.path.join(path, "Preprocessed", "InputMaps"), "mtb122016.p"),  # may need to modify
-    "output_path": FilePath(os.path.join(path, "Results", "Python_cn88"), "eco_{}_{}_{}.csv"),  # can modify if desired
+    "output_path": FilePath(os.path.join(path, "Results"), "eco_{}_{}_{}.csv"),  # can modify if desired
     "lakefile_path": FilePath(os.path.join(path, "Preprocessed", "LakeFiles"), "region_{}.csv"),
     "lentics_path": FilePath(os.path.join(path, "Preprocessed", "LakeFiles"), "region_{}_lentics.p"),
     "upstream_path": FilePath(os.path.join(path, "Preprocessed", "Upstream"), "upstream_{}.npz"),
@@ -103,10 +101,8 @@ path_params = {
 to_be_added_params = {
     # Hardwired stuff to get added to the front end
     "years": [2010, 2011, 2012, 2013],  # JCH - replace
-    "process_benthic": True,
-    "process_erosion": True,
-    "write_local_files": True,
-    "convolution_mode": [],  # "unconvolved", "aggregated"
+    "write_local_files": False,
+    "convolution_mode": ["unconvolved"],  # "unconvolved", "convolved"
     "cropstage": 2,  # JCH - replace
     "stagedays": 14,  # JCH - replace
     "stageflag": 2,  # JCH - replace
@@ -143,3 +139,8 @@ crop_groups = {14: {40, 10},
                176: {110},
                190: {180},
                195: {180}}
+
+#write_list = [4989415, 4988183, 4988241, 5042380, 4989385, 4989739, 5042400, 5039952, 2508563, 4867529, 5641174,
+#              5641630, 4869843, 4867727]
+
+write_list = {5640002, 5040010, 5040078, 5640944, 5640210, 5040886, 5640088, 5641176}
