@@ -79,30 +79,38 @@ def compile_and_compute(flows, lengths):
         print("{} of {} reaches could not be matched".format(len(not_found), len(all_found) + len(not_found)))
     out_data = []
     fields = ["COMID", "Length"] + ["{}_{}".format(cat, month + 1) for cat in ("Q", "V") for month in range(12)]
+    print(1, 18451037 in all_found)
     for comid in all_found:
         l = lengths[comid]
         row = np.concatenate([np.array([comid, l]), flows[comid]])
         out_data.append(row)
-    return np.array(np.array(out_data), dtype=np.float32)
+        if comid == 18451037:
+            print(2, comid, 18451037 in row)
+    out_data = np.array(out_data)
+    print(3, 18451037 in out_data[:, 0])
+    return out_data
 
 def generate_flow_files(nhd_path, out_folder):
 
     for region, region_dir in get_nhd(nhd_path).items():
-        outfile = os.path.join(out_folder, "region_{}.dat".format(region))
-        keyfile = os.path.join(out_folder, "region_{}_key.npy".format(region))
-        flows = get_flows(region_dir)
-        lengths = get_lengths(region_dir)
-        all_data = compile_and_compute(flows, lengths)
-        array = np.memmap(outfile, dtype='float32', mode='w+', shape=all_data.shape)
-        array[:] = all_data
-        shape = np.array(all_data.shape)
-        key = np.concatenate((shape, np.int32(array[:, 0])))
-        np.save(keyfile, key)
+        if region == '05':
+            outfile = os.path.join(out_folder, "region_{}.dat".format(region))
+            keyfile = os.path.join(out_folder, "region_{}_key.npy".format(region))
+            flows = get_flows(region_dir)
+            lengths = get_lengths(region_dir)
+            all_data = compile_and_compute(flows, lengths)
+            print(3.1, 18451037 in all_data[:, 0])
+            array = np.memmap(outfile, dtype='float32', mode='w+', shape=all_data.shape)
+            array[:] = all_data
+            shape = np.array(all_data.shape)
+            key = np.concatenate((shape, np.int32(all_data[:, 0])))
+            print(4, 18451037 in key)
+            np.save(keyfile, key)
 
 
 def main():
     nhd_path = r'T:\NationalData\NHDPlusV2'
-    out_folder = r'C:\Users\Trip Hook\Desktop\SAM\Preprocessed\FlowFiles'
+    out_folder = r'S:\bin\Preprocessed\FlowFiles'
     generate_flow_files(nhd_path, out_folder)
 
 if __name__ == "__main__":

@@ -92,7 +92,7 @@ class OutputMatrix(MemoryMatrix):
         arrays = ['leaching', 'runoff', 'erosion', 'soil_water', 'plant_factor', 'rain']
         variables = \
             ['covmax', 'org_carbon', 'bulk_density', 'plant_beg', 'harvest_beg', 'emerg_beg', 'bloom_beg', 'mat_beg']
-        key_data = np.array([[self.n_rows, self.n_cols, self.n_dates, self.start_date],
+        key_data = np.array([[self.shape[0], self.shape[1], self.n_dates, self.start_date],
                              arrays, variables, self.scenarios])
         np.save(self.keyfile_path, key_data)
 
@@ -192,7 +192,7 @@ class Scenario(object):
 def main():
     input_file = r"S:\bin\Preprocessed\ScenarioMatrices\MTB_scenarios_030717_2.txt"
     metfile_memmap = r"S:\bin\Preprocessed\MetTables\Met9105_2"
-    output_memmap = r'S:\bin\Preprocessed\Scenarios\mtb_test_new3'
+    output_memmap = r'S:\bin\Preprocessed\Scenarios\mtb_2'
 
     # Initialize input met matrix
     met = MetfileMatrix(metfile_memmap)
@@ -209,7 +209,7 @@ def main():
         s.write_to_memmap(out_matrix, writer)
     del writer
 
-if False:
+if True:
     import cProfile
     cProfile.run('main()')
 else:

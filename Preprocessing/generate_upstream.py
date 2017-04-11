@@ -283,7 +283,7 @@ def main():
     travel_time = True
 
     for region, region_dir in get_nhd().items():
-        if region == '07':
+        if region == '05':
             print(region)
             # Attribution tables (if any: format is {"Name": attribution dictionary...}
             generate_navigator(region, output_folder, travel_time=travel_time, overwrite=True)

@@ -2,30 +2,6 @@ import datetime
 import os
 
 
-class FilePath(object):
-    def __init__(self, dirname, basename):
-        self.dir = dirname
-        self.base = basename
-
-    def __repr__(self):
-        return self.full_path
-
-    @property
-    def exists(self):
-        return os.path.isfile(self.full_path)
-
-    @property
-    def ext(self):
-        return os.path.splitext(self.base)[1]
-
-    @property
-    def full_path(self):
-        return os.path.join(self.dir, self.base)
-
-    def format(self, *args):
-        return self.full_path.format(*args)
-
-
 class ParameterSet(object):
     def __init__(self, entries):
         self.__dict__.update(entries)
@@ -49,28 +25,6 @@ soil_params = {
     "delt": 86400.  # seconds per day, time interval
 }
 
-# Water Column Parameters - USEPA OPP defaults
-water_column_params = {
-    "dfac": 1.19,  # photolysis parameter from VVWM
-    "sused": 3,  # water column susp solid conc (mg/L)
-    "chloro": 0,  # water column chlorophyll conc (mg/L)
-    "froc": 0,  # water column organic carbon fraction on susp solids
-    "doc": 5,  # water column dissolved organic carbon content (mg/L)
-    "plmas": 0  # water column biomass conc (mg/L)
-}
-
-# Benthic Parameters - USEPA OPP defaults from EXAMS
-benthic_params = {
-    "depth": 0.05,  # benthic depth (m)
-    "porosity": 0.65,  # benthic porosity
-    "bulk_density": 1,  # bulk density, dry solid mass/total vol (g/cm3)
-    "froc": 0,  # benthic organic carbon fraction
-    "doc": 5,  # benthic dissolved organic carbon content (mg/L)
-    "bnmas": 0,  # benthic biomass intensity (g/m2)
-    "d_over_dx": 1  # mass transfer coefficient for exchange between benthic and water column (m/s)
-    # (can be modified later if data exists)
-}
-
 # Stream channel geometry
 stream_channel_params = {
     "a": 4.28,  # Stream channel width is computed from the power regression function w = a(q/v)^b
@@ -79,10 +33,9 @@ stream_channel_params = {
 
 # Time of Travel defaults
 time_of_travel_params = {
+    "gamma_convolve": False,
     "convolve_runoff": False,
-    "minimum_residence_time": 1.5,  # Minimum residence time in days for a reservoir to be treated as a reservoir
-    "round_down": False,  # Bin reaches by nearest interval, rounding down
-    "interval": 1  # days
+    "minimum_residence_time": 1.5  # Minimum residence time in days for a reservoir to be treated as a reservoir
 }
 
 # Preprocessed data repositories
@@ -90,11 +43,11 @@ time_of_travel_params = {
 path = r"..\bin"
 path_params = {
     "flow_dir": os.path.join(path, "Preprocessed", "FlowFiles"),
-    "map_path": FilePath(os.path.join(path, "Preprocessed", "InputMaps"), "mtb122016.p"),  # may need to modify
-    "output_path": FilePath(os.path.join(path, "Results"), "eco_{}_{}_{}.csv"),  # can modify if desired
-    "lakefile_path": FilePath(os.path.join(path, "Preprocessed", "LakeFiles"), "region_{}.csv"),
-    "lentics_path": FilePath(os.path.join(path, "Preprocessed", "LakeFiles"), "region_{}_lentics.p"),
-    "upstream_path": FilePath(os.path.join(path, "Preprocessed", "Upstream"), "upstream_{}.npz"),
+    "map_path": os.path.join(path, "Preprocessed", "InputMaps", "mtb_map1"),  # may need to modify
+    "output_path": os.path.join(path, "Results", "eco_{}_{}_{}.csv"),  # can modify if desired
+    "input_scenario_path": os.path.join(path, "Preprocessed", "Scenarios", "mtb"),
+    "lakefile_path": os.path.join(path, "Preprocessed", "LakeFiles", "region_{}.csv"),
+    "upstream_path": os.path.join(path, "Preprocessed", "Upstream", "upstream_{}.npz"),
 }
 
 # To be added to input file
@@ -102,7 +55,6 @@ to_be_added_params = {
     # Hardwired stuff to get added to the front end
     "years": [2010, 2011, 2012, 2013],  # JCH - replace
     "write_local_files": False,
-    "convolution_mode": ["unconvolved"],  # "unconvolved", "convolved"
     "cropstage": 2,  # JCH - replace
     "stagedays": 14,  # JCH - replace
     "stageflag": 2,  # JCH - replace
@@ -111,8 +63,6 @@ to_be_added_params = {
 
 plant = ParameterSet(plant_params)
 soil = ParameterSet(soil_params)
-water_column = ParameterSet(water_column_params)
-benthic = ParameterSet(benthic_params)
 stream_channel = ParameterSet(stream_channel_params)
 paths = ParameterSet(path_params)
 time_of_travel = ParameterSet(time_of_travel_params)
@@ -140,7 +90,9 @@ crop_groups = {14: {40, 10},
                190: {180},
                195: {180}}
 
-#write_list = [4989415, 4988183, 4988241, 5042380, 4989385, 4989739, 5042400, 5039952, 2508563, 4867529, 5641174,
-#              5641630, 4869843, 4867727]
+mtb_monitoring = {4989415, 4988183, 4988241, 5042380, 4989385, 4989739, 5042400, 5039952, 2508563, 4867529, 5641174,
+                  5641630, 4869843, 4867727}
 
-write_list = {5640002, 5040010, 5040078, 5640944, 5640210, 5040886, 5640088, 5641176}
+mtb_gaged = {5640002, 5040010, 5040078, 5640944, 5640210, 5040886, 5640088, 5641176}
+
+write_list = mtb_monitoring | mtb_gaged

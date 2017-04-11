@@ -75,17 +75,16 @@ def make_laketable(lake_bins, waterbody_outlets, residence_times):
     dtypes = ["<i4", "<i4", "<i4", "f4"]
 
     rows = np.zeros(len(residence_times.keys()), dtype=list(zip(header, dtypes)))
-    i = 0
-    for lake_bin, lakes in lake_bins.items():
+    for i, (lake_bin, lakes) in enumerate(lake_bins.items()):
         for lake in lakes:
             outlet = waterbody_outlets.get(lake)
             residence_time = residence_times.get(lake)
             if outlet and residence_time and residence_time >= 1.5:
                 new_lake = (lake_bin, lake, outlet, residence_time)
                 rows[i] = new_lake
-                i += 1
     matrix = np.array(rows[:i])
     return pd.DataFrame(data=matrix).sort_values("LakeBin")
+
 
 def generate_lakefile(nav, wbcomid_path, volume_path, flow_path, outfile_path):
     wb_dict, volume_dict, flow_dict = get_lookups(wbcomid_path, volume_path, flow_path)
@@ -107,6 +106,7 @@ def generate_lakefile(nav, wbcomid_path, volume_path, flow_path, outfile_path):
 
 def main():
     from trip_tools import nhd_states
+
     for region in nhd_states.keys():
         print(region)
         nav = Navigator(region)

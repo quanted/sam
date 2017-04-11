@@ -7,6 +7,7 @@ from parameters import paths as p
 # Scenarios loading from memmap, but there's going to be a structural change (region to metfile?)
 # Run area
 # Output types
+# Checks for completeness
 
 
 def pesticide_calculator(input_data):
@@ -16,19 +17,17 @@ def pesticide_calculator(input_data):
 
     # Load watershed topology maps and account for necessary files
     print("Initializing watershed...")
-    region = func.Hydroregion(inputs, p.map_path, p.flow_dir, p.upstream_path, p.lakefile_path, p.lentics_path,
-                              scenario_memmap=r"..\bin\Preprocessed\Scenarios\mtb_test_new3")
+    region = func.Hydroregion(inputs, p.map_path, p.flow_dir, p.upstream_path, p.lakefile_path, p.input_scenario_path)
 
     print("Processing scenarios...")
     scenario_matrix = \
-        func.ScenarioMatrix(inputs, region, region.scenario_memmap,
-                                          stored=r'..\bin\Preprocessed\mtb_new3.dat', overwrite_stored=False)
+        func.ScenarioMatrix(inputs, region.scenario_memmap,
+                            stored=r'..\bin\Preprocessed\mtb_{}.dat'.format(inputs.chemical_name), overwrite=False)
 
     region.years = [2010]  # JCH - temporary
     for year in region.years:
         print("Processing recipes for {}...".format(year))
-        recipe_matrix = func.RecipeMatrix(inputs, year, region, scenario_matrix, p.output_path, inputs.convolution_mode,
-                                          write_list=write_list)
+        recipe_matrix = func.RecipeMatrix(inputs, year, region, scenario_matrix, p.output_path, write_list=write_list)
         for reaches, lake in region.cascade():
             recipe_matrix.process_recipes(reaches)
             recipe_matrix.time_of_travel(reaches, lake)
@@ -37,8 +36,7 @@ def pesticide_calculator(input_data):
 def main(input_data=None):
     if input_data is None:
         import chemicals
-
-        input_data = chemicals.chlorpyrifos
+        input_data = chemicals.atrazine
     pesticide_calculator(input_data)
 
 
@@ -48,9 +46,8 @@ if __name__ == "__main__":
     time_it = True
     if time_it:
         import cProfile
-
-        for chemical in (atrazine,):
+        for chemical in (chlorpyrifos,):
             cProfile.run('main({})'.format(chemical))
     else:
-        for chemical in (atrazine,):
+        for chemical in (chlorpyrifos,):
             main(chemical)
