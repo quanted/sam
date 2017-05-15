@@ -7,6 +7,16 @@ class ParameterSet(object):
         self.__dict__.update(entries)
 
 
+"""
+Ohio
+"flow_file": os.path.join(path, "bin", "OhioErosion", "Flows", "region_05.csv"),
+"scenario_dir": os.path.join(path, "bin", "OhioErosion", "Scenarios", "Tabular"),
+"recipe_path": FilePath(os.path.join(path, "bin", "OhioErosion", "Recipes"), "recipe_(\d+?)_cdl(\d{4}).txt"),
+"hydro_path": FilePath(os.path.join(path, "bin", "OhioErosion", "Hydro"), "{}_hydro.txt"),
+"output_path":
+    FilePath(os.path.join(path, "bin", "Outputs", "Python", "ErosionTest", "With"), "Eco_{}_{}_daily.out"),
+"""
+
 # Parameters related directly to pesticide degradation
 plant_params = {
     "foliar_degradation": 0.0,  # per day
@@ -15,6 +25,7 @@ plant_params = {
 
 # Parameters related to soils in the field
 soil_params = {
+
     "delta_x": 0.02,  # Surface depth (m)
     "distrib_2cm": 0.75,  # Soil distribution, top 2 cm. Revised for 1 compartment - uniform extraction
     "runoff_effic": 0.266,  # Runoff efficiency
@@ -96,3 +107,4 @@ mtb_monitoring = {4989415, 4988183, 4988241, 5042380, 4989385, 4989739, 5042400,
 mtb_gaged = {5640002, 5040010, 5040078, 5640944, 5640210, 5040886, 5640088, 5641176}
 
 write_list = mtb_monitoring | mtb_gaged
+
