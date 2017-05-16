@@ -14,7 +14,7 @@ class OutputMatrix(MemoryMatrix):
         self.end_date = end_date
         self.metfiles = [f.split("_")[0] for f in os.listdir(input_path)]
         self.n_cols = ((end_date - start_date).days + 1) * 3
-        super(OutputMatrix, self).__init__(self.metfiles, self.n_cols, name=self.name, out_path=self.dir)
+        super(OutputMatrix, self).__init__(self.metfiles, self.n_cols, name=self.name, path=self.dir)
 
         self.keyfile_path = os.path.join(self.dir, self.name + "_key.npy")
         self.create_keyfile()

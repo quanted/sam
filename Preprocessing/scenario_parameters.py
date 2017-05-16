@@ -1,37 +1,11 @@
 import numpy as np
 
-extraction_depth = 0.02  # m, depth = 2 cm changed to just defining node below
-maxyears = 65
-maxdays = 9131  # JCH - is this the same as num_records?  I DON'T GET IT
-washoff_depth = 0.02  # m, depth at which foliar washoff deposits
-cn_moisture_depth = 0.1  # m, depth at which moisture is checked for CN adjustment, BUT no longer using adjustment, mmf 3/2015
-nuslec = 2  # number of cover management practices
-nHoriz = 2
-thkn_layer1 = 2.0  # cm, thickness of first layer
-thkn_layer2 = 100.0  # cm, thickness of 2nd layer
-maxdepth = 1.02  # total depth in meters
 increments_1 = 1  # number of increments in top 2-cm layer: 1 COMPARTMENT, UNIFORM EXTRACTION
 increments_2 = 20  # number of increments in 2nd 100-cm layer (not used in extraction)
-number_soil_incr = 21  # total number of soil compartments: 1 top 2-cm compartment + 20 compartments below
-delta_x = np.array([0.02] + [0.05] * (number_soil_incr - 1))
-
-input_types = dict([
-    ('plntbeg', float),
-    ('hvstbeg', float),  # jch - these need to be float because the NA values prevent reading as integer
-    ('cdl', int),  # not needed
-    ('cokey', str),  # not needed
-    ('date', str),  # probably not needed
-    ('hsg', str),
-    ('leachpot', str),
-    ('mukey', str),
-    ('rainfall', int),
-    ('scenario', str),
-    ('state', str),
-    ('weatherID', str)])
+delta_x = np.array([0.02] + [0.05] * ((increments_1 + increments_2) - 1))
 
 # Values are from Table F1 of TR-55, interpolated values are included to make arrays same size
 erosion_header = [.1, .15, .2, .25, .3, .35, .4, .45, .5]
-
 types = np.array([
     [[2.3055, -0.51429, -0.1175],
      [2.2706, -0.50908, -0.1034],

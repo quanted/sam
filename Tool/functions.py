@@ -1,94 +1,158 @@
 import os
 import sys
-import datetime
 import math
 
 import numpy as np
 import pandas as pd
 
-from numba import njit
+from numba import njit, guvectorize
 from tempfile import mkdtemp
-from collections import defaultdict, namedtuple
+from collections import namedtuple
 
-# 1 - Write contributions
-# 1 - Check for lentic reach
-# 2 - np.compress for fetch?
-# 2 - Commenting
-# 2 - Clean up packaging of data (cumulative, in_tank, etc.)  Use OutputTable object for this?
-# 2 - Index memmaps by name, not using lookup?
-# 2 - Check methods for canopy applications, put all in njit loop
+
+class MemoryMatrix(object):
+    def __init__(self, index, y_size, z_size=None, path=None, base=None, name=None, dtype=np.float32, overwrite=True,
+                 input_only=False):
+        self.name = name
+        self.dtype = dtype
+        self.index = index
+        self.count = len(self.index)
+        self.lookup = dict(zip(self.index, np.arange(self.count)))
+        self.shape = (self.count, y_size) if not z_size else (self.count, y_size, z_size)
+        overwrite = False if input_only else overwrite
+
+        # Load from saved file if one is specified, else generate
+        path = mkdtemp() if not path else path
+        base = name if not base else base
+        self.path = os.path.join(path, base + ".dat")
+        assert not input_only or os.path.exists(self.path), "Matrix {} not found".format(self.path)
+        if overwrite or not os.path.exists(self.path):
+            np.memmap(self.path, dtype=dtype, mode='w+', shape=self.shape)
+            self.new = True
+        else:
+            self.new = False
+
+    def fetch(self, get_index, verbose=True, raw_index=False, dtype=None, copy=False):
+        array = self.copy if copy else self.reader
+        location = self.lookup.get(get_index) if not raw_index else get_index
+        if location is not None:
+            output = array[location]
+        else:
+            if verbose:
+                print("{} not found".format(get_index))
+            output = None
+        del array
+        return output
+
+    def fetch_multiple(self, indices, copy=False, verbose=False, aliased=True, return_index=False, columns=None):
+
+        mode = 'c' if copy else 'r'
+        index = None
+
+        if aliased:
+            addresses = np.int32([self.lookup.get(x, -1) for x in indices])
+            found = np.where(addresses >= 0)[0]
+            not_found = indices.size - found.size
+            if not_found:
+                index = found
+                if verbose:
+                    print("Missing {} of {} indices in {} matrix".format(not_found, len(addresses), self.name))
+            indices = addresses[found]
+
+        array = np.memmap(self.path, dtype='float32', mode=mode, shape=self.shape)
+        out_array = array[indices] if columns is None else array[np.ix_(indices, columns)]
+        del array
+
+        if return_index:
+            return out_array, index
+        else:
+            return out_array
+
+    def update(self, key, value, aliased=True):
+        array = self.writer
+        array_index = self.lookup.get(key) if aliased else key
+        if array_index is not None:
+            array[array_index] = value
+        else:
+            print("Index {} not found in {} array".format(key, self.name))
+        del array
+
+    @property
+    def reader(self):
+        return np.memmap(self.path, dtype=self.dtype, mode='r', shape=self.shape)
+
+    @property
+    def copy(self):
+        return np.memmap(self.path, dtype=self.dtype, mode='c', shape=self.shape)
+
+    @property
+    def writer(self):
+        mode = 'r+' if os.path.isfile(self.path) else 'w+'
+        return np.memmap(self.path, dtype=self.dtype, mode=mode, shape=self.shape)
+
+
+class FlowMatrix(MemoryMatrix):
+    def __init__(self, file_path, region, dates):
+        self.region = region
+        self.dates = dates
+        self.months = np.array(list(map(lambda x: x.month, self.dates))) - 1
+
+        # Load key
+        self.key_file = os.path.join(file_path, "region_{}_key.npy".format(self.region))
+        key = np.load(self.key_file, mmap_mode='r')
+        self.shape, self.reaches = tuple(key[:2]), key[2:]
+
+        # Initialize matrix
+        super(FlowMatrix, self).__init__(self.reaches, self.shape[1], name="region_{}".format(self.region),
+                                         path=file_path, input_only=True)
+
+    def fetch(self, reach_id, verbose=False):
+        row = super(FlowMatrix, self).fetch(reach_id, verbose)
+        if row is not None:
+            length = row[1] * 1000.  # km -> m
+            q, v = np.split(row[2:], [12])
+            return namedtuple('Flow', ['q', 'v', 'l'])(q[self.months], v[self.months], length)
+        else:
+            pass
 
 
 class Hydroregion(object):
     """
     Contains all datasets and functions related to the NHD Plus region, including all hydrological features and links
-    between them, as well as the configuration of all reach catchments (recipes) and the scenarios that they contain.
-    Contains many file input functions.
     """
 
-    def __init__(self, i, map_path, flowfile_dir, upstream_dir, lakefile_dir, scenario_memmap):
-
+    def __init__(self, i, map_path, flowfile_dir, upstream_dir, lakefile_dir):
         from parameters import time_of_travel
 
         self.i = i
         self.id = i.region
-        self.irf = ImpulseResponseMatrix(i.n_dates)
-        self.scenario_memmap = InputScenarios(i, scenario_memmap)
-
-        self.minimum_residence_time = time_of_travel.minimum_residence_time
+        self.irf = None if not time_of_travel.gamma_convolve else ImpulseResponseMatrix(i.n_dates)
 
         # Read hydrological input files
         self.flow_file = FlowMatrix(flowfile_dir, self.id, i.dates)
-        self.upstream = self.read_upstream_file(upstream_dir)
-        self.lake_table = self.read_lake_file(lakefile_dir)
+        self.nav = Navigator(self.id, upstream_dir)
+        self.lake_table = pd.read_csv(lakefile_dir.format(self.id), index_col="LakeID")
         self.recipe_map = RecipeMap(map_path)
         self.years = sorted({year for _, year in self.recipe_map.lookup.keys() if year})
 
         # Confine to available reaches and assess what's missing
         self.active_reaches = self.confine()
-
-    def upstream_watershed(self, reach_id, mode='reach', return_times=True):
-
-        def unpack(array):
-            first_row = [array[start_row][start_col:]]
-            remaining_rows = list(array[start_row + 1:end_row])
-            return np.concatenate(first_row + remaining_rows)
-
-        # Look up reach ID and fetch address from upstream object
-        reach = reach_id if mode == 'alias' else self.upstream.reach_to_alias.get(reach_id)
-        start_row, end_row, col = map(int, self.upstream.map[reach])
-        try:
-            start_col = list(self.upstream.paths[start_row]).index(reach)
-        except ValueError:
-            print("{} not in upstream lookup".format(reach))
-            return [] if not return_times else [], []
-        else:
-            # Fetch upstream reaches and times
-            aliases = unpack(self.upstream.paths)
-            reaches = aliases if mode == 'alias' else np.int32(self.upstream.alias_to_reach[aliases])
-        if not return_times:
-            return reaches
-        else:
-            times = unpack(self.upstream.times)
-            adjusted_times = np.int32(times - self.upstream.times[start_row][start_col])
-            return reaches, adjusted_times
+        self.run_reaches = set()
 
     def cascade(self):
-        run_reaches = set()
         confined_lake_table = self.lake_table[self.lake_table.OutletID.isin(self.active_reaches)]
-        for _, lake in confined_lake_table.iterrows():
-            upstream_reaches = set(self.upstream_watershed(lake.OutletID, mode='reach', return_times=False))
+        for i, lake in confined_lake_table.iterrows():
+            upstream_reaches = set(self.nav.upstream_watershed(lake.OutletID, mode='reach', return_times=False))
             reaches = upstream_reaches & self.active_reaches - {lake.OutletID}
-            yield reaches, lake
-            run_reaches |= reaches
-        remaining_reaches = self.active_reaches - run_reaches
+            yield reaches - self.run_reaches, lake
+            self.run_reaches |= reaches
+        remaining_reaches = self.active_reaches - self.run_reaches
         yield remaining_reaches, None
 
     def confine(self):
-
         # Recipe/reaches that are (1) in the upstream file and (2) have a recipe file in at least 1 yr
         map_reaches = {reach_id for reach_id, _ in self.recipe_map.lookup.keys()}
-        region_reaches = set(self.upstream.reach_to_alias.keys())
+        region_reaches = set(self.nav.reach_to_alias.keys())
         active_reaches = map_reaches & region_reaches
         active_reaches.discard(0)
 
@@ -97,28 +161,24 @@ class Hydroregion(object):
 
         return active_reaches
 
-    def read_lake_file(self, lakefile_path):
-        lake_file = lakefile_path.format(self.id)
 
-        # Read table from file
-        waterbody_table = pd.read_csv(lake_file, index_col="LakeID")
+class ImpulseResponseMatrix(MemoryMatrix):
+    def __init__(self, n_dates):
+        self.index = np.arange(1000)
+        self.n_dates = n_dates
+        super(ImpulseResponseMatrix, self).__init__(np.arange(50), n_dates, name="impulse response")
 
-        # Trim table to lakes that exceed the minimum residence time
-        waterbody_table = waterbody_table.loc[waterbody_table.ResidenceTime >= self.minimum_residence_time]
-
-        return waterbody_table
-
-    def read_upstream_file(self, upstream_path):
-        upstream_file = upstream_path.format(self.id)
-        assert os.path.isfile(upstream_file), "Upstream file {} not found".format(upstream_file)
-        Upstream = namedtuple("Upstream", ["paths", "times", "map", "alias_to_reach", "reach_to_alias"])
-        data = np.load(upstream_file, mmap_mode='r')
-        conversion_array = data['alias_index']
-        reverse_conversion = dict(zip(conversion_array, np.arange(conversion_array.size)))
-        return Upstream(data['paths'], data['time'], data['path_map'], conversion_array, reverse_conversion)
+    def fetch(self, index):
+        irf = super(ImpulseResponseMatrix, self).fetch(index, verbose=False)
+        if irf is None:
+            irf = impulse_response_function(index, 1, self.n_dates)
+            self.update(index, irf)
+        return irf
 
 
 class InputFile(object):
+    """ User-specified parameters and parameters derived from them """
+
     def __init__(self, input_data):
 
         # Adjust variables
@@ -128,9 +188,10 @@ class InputFile(object):
 
         # Dates
         self.dates = pd.date_range(self.sim_date_start, self.sim_date_end)
-        self.dates_str = list(map(lambda x: x.strftime("%m-%d-%y"), self.dates))
-        self.new_years = \
-            np.array([i for i, date in enumerate(self.dates) if (date.month, date.day) == (1, 1)], dtype=np.int16)
+        self.year = self.dates.year
+        self.unique_years, self.year_length = np.unique(self.year, return_counts=True)
+        self.new_year = np.array(
+            [(np.datetime64("{}-01-01".format(year)) - self.sim_date_start).astype(int) for year in self.unique_years])
         self.n_dates = len(self.dates)
 
         # Crops
@@ -157,9 +218,10 @@ class InputFile(object):
             appstr = StringIO(application_string)
             header = ('crop', 'event', 'offset', 'window1', 'pct1', 'window2', 'pct2', 'rate', 'method', 'refine')
             grid = pd.read_csv(appstr, names=header, sep=",", lineterminator="\n")
-            for old_class, application in grid.iterrows():
+            for old_class, app in grid.iterrows():
+                assert app.method in ("ground", "foliar"), "Invalid application method: {}".format(app.method)
                 for new_class in crop_groups.get(old_class, set()):
-                    new_application = application.copy()
+                    new_application = app.copy()
                     grid.loc[new_class] = new_application
             grid.rate /= 10000.  # kg/ha -> kg/m2
 
@@ -167,13 +229,22 @@ class InputFile(object):
 
             return [Application(**row.to_dict()) for _, row in grid.iterrows()]
 
-        def date(date_string):
-            return datetime.datetime.strptime(date_string, "%m/%d/%Y").date()
+        def threshold_matrix(threshold_string):
+            from io import StringIO
+
+            appstr = StringIO(threshold_string)
+            header = ('duration', 'threshold', 'name')
+            grid = pd.read_csv(appstr, names=header, sep=",", lineterminator="\n")
+            grid.sort_values(['duration', 'threshold'], inplace=True)
+            Threshold = namedtuple("Threshold", header)
+
+            return [Threshold(**row.to_dict()) for _, row in grid.iterrows()]
 
         input_format = \
             {"chemical_name": str,  # Atrazine
              "region": str,  # Ohio Valley
              "applications": application_matrix,
+             "thresholds": threshold_matrix,
              "soil_hl": float,  # Soil half life
              "wc_metabolism_hl": float,  # Water column metabolism half life
              "ben_metabolism_hl": float,  # Benthic metabolism half life
@@ -181,8 +252,8 @@ class InputFile(object):
              "hydrolysis_hl": float,  # Hydrolysis half life
              "kd_flag": int,  # 1
              "koc": float,  # 100
-             "sim_date_start": date,  # 01/01/1984
-             "sim_date_end": date,  # 12/31/2013
+             "sim_date_start": np.datetime64,  # 01/01/1984
+             "sim_date_end": np.datetime64,  # 12/31/2013
              "output_type": int,  # 2
              "output_time_avg_conc": int,  # 1
              "output_avg_days": int,  # 4
@@ -208,163 +279,52 @@ class InputFile(object):
             self.__dict__.update(input_data)
 
 
-class MemoryMatrix(object):
-    def __init__(self, index, y_size, z_size=None, name=None, out_path=None, existing=None, dtype=np.float32):
-        self.name = name
-        self.dtype = dtype
-        self.index = index
-        self.count = len(self.index)
-        self.lookup = dict(zip(self.index, np.arange(self.count)))
-        self.shape = (self.count, y_size) if not z_size else (self.count, y_size, z_size)
+class Navigator(object):
+    def __init__(self, region_id, upstream_path):
+        self.file = upstream_path.format(region_id)
+        self.paths, self.times, self.map, self.alias_to_reach, self.reach_to_alias = self.load()
 
-        # Load from saved file if one is specified, else generate
-        if existing:
-            self.path = existing
-        else:
-            out_path = mkdtemp() if not out_path else out_path
-            self.path = os.path.join(out_path, '{}_matrix.dat'.format(name))
-            if os.path.exists(self.path):
-                os.remove(self.path)
-            np.memmap(self.path, dtype=dtype, mode='w+', shape=self.shape)
+    def load(self):
+        assert os.path.isfile(self.file), "Upstream file {} not found".format(self.file)
+        data = np.load(self.file, mmap_mode='r')
+        conversion_array = data['alias_index']
+        reverse_conversion = dict(zip(conversion_array, np.arange(conversion_array.size)))
+        return data['paths'], data['time'], data['path_map'], conversion_array, reverse_conversion
 
-    @property
-    def exists(self):
-        return os.path.isfile(self.path)
+    def upstream_watershed(self, reach_id, mode='reach', return_times=True):
 
-    def fetch(self, get_index, verbose=True, raw_index=False, dtype=None):
-        array = self.reader
-        location = self.lookup.get(get_index) if not raw_index else get_index
-        if location is not None:
-            output = array[location]
-        else:
-            if verbose:
-                print("{} {} not found in {} matrix".format(self.name.capitalize(), get_index, self.name))
-            output = None
-        del array
-        return output
+        def unpack(array):
+            first_row = [array[start_row][start_col:]]
+            remaining_rows = list(array[start_row + 1:end_row])
+            return np.concatenate(first_row + remaining_rows)
 
-    def fetch_multiple(self, indices, verbose=False, chunk=False):
-        # JCH - add ability to iterate instead of returning an entire array
-        array = np.memmap(self.path, dtype='float32', mode='c', shape=self.shape)
-        aliases = np.vectorize(lambda x: self.lookup.get(x, -1))(indices)
-        not_found = np.where(aliases == -1)[0]
-        if not_found.any() and verbose:
-            print("Missing {} of {} indices in {} matrix".format(not_found.size, aliases.size, self.name))
-        output = array[aliases]
-        output[not_found] = 0.
-        output = np.swapaxes(output, 0, 1)
-        return output
+        # Look up reach ID and fetch address from upstream object
+        reach = reach_id if mode == 'alias' else self.reach_to_alias.get(reach_id)
 
-    def update(self, key, value):
-        array = self.writer
-        array_index = self.lookup.get(key)
-        if array_index is not None:
-            array[array_index] = value
-        else:
-            print("Index {} not found in {} array".format(key, self.name))
-        del array
-
-    @property
-    def reader(self):
-        return np.memmap(self.path, dtype=self.dtype, mode='r', shape=self.shape)
-
-    @property
-    def copy(self):
-        return np.memmap(self.path, dtype=self.dtype, mode='c', shape=self.shape)
-
-    @property
-    def writer(self):
-        mode = 'r+' if os.path.isfile(self.path) else 'w+'
-        return np.memmap(self.path, dtype=self.dtype, mode=mode, shape=self.shape)
-
-
-class FlowMatrix(MemoryMatrix):
-    def __init__(self, flow_file_dir, region, dates):
-        self.region = region
-        self.dates = dates
-        self.months = np.array(list(map(lambda x: x.month, self.dates))) - 1
-        self.array_path = os.path.join(flow_file_dir, "region_{}.dat".format(self.region))
-        self.lookup_path = os.path.join(flow_file_dir, "region_{}_key.npy".format(self.region))
-        assert all(map(os.path.isfile, (self.array_path, self.lookup_path))), \
-            "Flow file not found for region {}".format(self.region)
-        key = np.load(self.lookup_path, mmap_mode='r')
-        self.shape, self.reaches = tuple(key[:2]), key[2:]
-        super(FlowMatrix, self).__init__(self.reaches, self.shape[1], name="flow", existing=self.array_path)
-
-    def fetch(self, reach_id, verbose=False):
-        row = super(FlowMatrix, self).fetch(reach_id, verbose)
-        if row is not None:
-            length = row[1] * 1000.  # km -> m
-            q, v = np.split(row[2:], [12])
-            return namedtuple('Flow', ['q', 'v', 'l'])(q[self.months], v[self.months], length)
-        else:
-            pass
-
-
-class ImpulseResponseMatrix(MemoryMatrix):
-    def __init__(self, n_dates):
-        self.index = np.arange(1000)
-        self.n_dates = n_dates
-        super(ImpulseResponseMatrix, self).__init__(np.arange(50), n_dates, name="irf")
-
-    def fetch(self, index):
-        irf = super(ImpulseResponseMatrix, self).fetch(index, verbose=False)
-        if irf is not None:
-            irf = impulse_response_function(index, 1, self.n_dates)
-            self.update(index, irf)
-            return irf
-
-
-class InputScenarios(MemoryMatrix):
-    def __init__(self, i, memmap_path):
-        self.i = i
-        self.memmap_path = memmap_path + "_matrix.dat"
-        self.keyfile_path = memmap_path + "_key.npy"
-
-        # Set row/column offsets
-
-        self.n_cols, self.n_dates, start_date, self.arrays, self.variables, self.scenarios = self.load_key()
-        self.n_arrays, self.n_vars = len(self.arrays), len(self.variables)
-        self.array_block = self.n_dates * self.n_arrays
-        self.variable_block = self.array_block + self.n_vars
-
-        # Set date offsets
-        self.start_date = start_date
-        self.end_date = self.start_date + datetime.timedelta(days=self.n_dates)
-        assert self.start_date <= self.i.sim_date_start and self.end_date >= self.i.sim_date_end, \
-            "Simulation dates extend beyond range of dates in scenario matrix"
-        self.start_offset = (self.i.sim_date_start - self.start_date).days
-        self.end_offset = (self.i.sim_date_end - self.end_date).days + 1
-
-        # Initialize memory matrix
-        super(InputScenarios, self).__init__(self.scenarios, self.n_cols, existing=self.memmap_path)
-
-    def load_key(self):
         try:
-            (n_rows, n_cols, n_dates, start_date), arrays, variables, scenarios = np.load(self.keyfile_path)
-            return n_cols, n_dates, start_date, arrays, variables, scenarios
+            start_row, end_row, col = map(int, self.map[reach])
+            start_col = list(self.paths[start_row]).index(reach)
+        except TypeError:
+            print("Reach {} not found in region".format(reach))
+            return [] if not return_times else [], []
         except ValueError:
-            exit("Invalid key file {}".format(self.keyfile_path))
-
-    def extract_scenario(self, scenario_id, reader=None):
-        if reader is None:
-            data = self.fetch(scenario_id)
+            print("{} not in upstream lookup".format(reach))
+            return [] if not return_times else [], []
         else:
-            location = self.lookup[scenario_id]
-            data = reader[location]
-        arrays = data[:self.array_block].reshape((self.n_arrays, self.n_dates))[:, self.start_offset:self.end_offset]
-        variables = data[self.array_block: self.variable_block]
-        scenario = dict(zip(self.arrays, arrays))
-        scenario.update(dict(zip(self.variables, variables)))
-        scenario['events'] = {'plant': scenario['plant_beg'], 'emergence': scenario['emerg_beg'],
-                              'maturity': scenario['mat_beg'], 'harvest': ['harvest_beg']}
-        return [scenario[key] for key in
-                ("events", "runoff", "erosion", "leaching", "org_carbon", "bulk_density", "soil_water",
-                 "plant_factor", "rain", "covmax")]
+            # Fetch upstream reaches and times
+            aliases = unpack(self.paths)
+            reaches = aliases if mode == 'alias' else np.int32(self.alias_to_reach[aliases])
+        if not return_times:
+            return reaches
+        else:
+            times = unpack(self.times)
+            adjusted_times = np.int32(times - self.times[start_row][start_col])
+            return reaches, adjusted_times
 
 
 class RecipeMap(MemoryMatrix):
     def __init__(self, in_path):
+        self.dir, self.base = os.path.split(in_path)
         self.memmap_file = in_path + ".dat"
         self.key_file = in_path + "_key.npy"
         self.name = "recipe map"
@@ -372,8 +332,8 @@ class RecipeMap(MemoryMatrix):
         self.key = list(map(tuple, np.load(self.key_file)))
         self.n_cols = self.key.pop(-1)[0]
 
-        super(RecipeMap, self).__init__(self.key, self.n_cols, 2,
-                                        name=self.name, existing=self.memmap_file, dtype=np.int32)
+        super(RecipeMap, self).__init__(self.key, self.n_cols, 2, name=self.name, path=self.dir, base=self.base,
+                                        dtype=np.int32, input_only=True)
 
     def fetch(self, get_index, verbose=False):
         results = super(RecipeMap, self).fetch(get_index, verbose)
@@ -384,94 +344,223 @@ class RecipeMap(MemoryMatrix):
         return results
 
 
-class RecipeMatrix(MemoryMatrix):
-    def __init__(self, i, year, region, scenario_matrix, output_path, write_list=None):
+class RecipeMatrices(object):
+    def __init__(self, i, year, region, scenario_matrix, output_path, write_list=None, save_file=None):
         self.i = i
         self.year = year
         self.region = region
-        self.output_path = os.path.join(os.path.dirname(output_path), i.chemical_name, os.path.basename(output_path))
+        self.output_dir = os.path.join(output_path, i.chemical_name)
         self.scenario_matrix = scenario_matrix
         self.filter = write_list
-
         self.recipe_ids = sorted(region.active_reaches)
+        self.outlets = set(self.recipe_ids) & set(self.region.lake_table.OutletID)
 
-        self.processed = set()
-        self.finished = set()
+        # Initialize output matrix: matrix containing SAM results that don't require recall in model
+        self.output_fields = ['benthic_conc', 'total_flow', 'total_runoff', 'total_mass', 'total_conc']
+        self.output = MemoryMatrix(self.recipe_ids, len(self.output_fields), self.i.n_dates, path=self.output_dir,
+                                   base=save_file, name="output")
 
-        super(RecipeMatrix, self).__init__(self.recipe_ids, 2, self.i.n_dates, "recipe")
+        # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
+        self.contributions = np.zeros((2, 255))
 
-        self.contribution_by_crop = np.zeros(255)
+        # Initialize local matrix: matrix of local runoff and mass, for rapid internal recall
+        self.local_fields = ['local_mass', 'local_runoff']
+        self.local = MemoryMatrix(self.recipe_ids, len(self.local_fields), self.i.n_dates, name="recipe")
 
-    def burn_reservoir(self, lake, active_recipes):
+    def burn_reservoir(self, lake, upstream_reaches):
+
         from parameters import time_of_travel as time_of_travel_params
-        irf = impulse_response_function(1, lake.ResidenceTime, self.i.n_dates)
-        for recipe_id in active_recipes:
-            old_record = self.fetch(recipe_id)
-            if old_record is not None:
-                old_mass, old_runoff = old_record
+
+        if lake is not None and upstream_reaches:
+
+            # Get the convolution function
+            irf = impulse_response_function(1, lake.ResidenceTime, self.i.n_dates)
+
+            # Pull mass and runoff time series for all upstream reaches and add together
+            if upstream_reaches:
+
+                upstream_reaches = np.array(list(upstream_reaches))
+
+                old_mass, old_runoff = self.local.fetch_multiple(upstream_reaches).sum(axis=0)
+
+                # Modify combined time series to reflect reservoir
                 new_mass = np.convolve(old_mass, irf)[:self.i.n_dates]
                 if time_of_travel_params.convolve_runoff:  # Convolve runoff
                     new_runoff = np.convolve(old_runoff, irf)[:self.i.n_dates]
                 else:  # Flatten runoff
                     new_runoff = np.repeat(np.mean(old_runoff), self.i.n_dates)
-                self.update(recipe_id, np.array([new_mass, new_runoff]))
 
-    def concentration(self, reach, transported_mass, runoff):
+                # Add all lake mass and runoff to outlet
+                self.local.update(lake.OutletID, np.array([new_mass, new_runoff]))
+
+    def calculate_exceedances(self, concentration):
+        if concentration is not None:
+            years = self.i.dates.year - self.i.dates.year.min()
+            durations, thresholds, names = zip(*self.i.thresholds)
+            exceed = moving_window(concentration, *map(np.int16, (durations, thresholds, years, self.i.year_length)))
+            return exceed
+
+    def calculate_contributions(self, scenarios, masses):
+        # Sum the total contribution by land cover class and add to running total
+        scenarios = np.array(scenarios)
+        scenario_names = self.scenario_matrix.scenarios[scenarios]
+        classes = [int(name.split("cdl")[1]) for name in scenario_names]
+        self.contributions[0] += np.bincount(classes, weights=masses[0], minlength=255)
+        self.contributions[1] += np.bincount(classes, weights=masses[1], minlength=255)
+
+    def compute_concentration(self, reach, transported_mass, runoff):
         """ Concentration function for time of travel """
         try:
             q = self.region.flow_file.fetch(reach).q
+        except AttributeError:
+            return None, (None, None)
+        else:
+            """
+            JCH - the idea here is that baseflow is estimated as the difference between total predicted q (erom) and
+            mean modeled runoff. Predicted baseflow isn't event specific and is not sensitive to runoff itself apart
+            from the mean.  This balances the sum of the modeled Q with the sum of the predicted Q
+            """
+            mean_runoff = runoff.mean()  # m3/d
+            baseflow = np.subtract(q, mean_runoff, out=np.zeros(self.i.n_dates), where=(q > mean_runoff))
+            total_flow = runoff + baseflow
+            concentration = np.divide(transported_mass, total_flow, out=np.zeros(self.i.n_dates),
+                                      where=(total_flow != 0))
+            runoff_concentration = np.divide(transported_mass, runoff, out=np.zeros(self.i.n_dates),
+                                             where=(runoff != 0))
+
+            return total_flow, map(lambda x: x * 1000000., (concentration, runoff_concentration))  # kg/m3 -> ug/L
+
+    def fetch_scenarios(self, recipe_id):
+        try:
+            data = self.region.recipe_map.fetch((recipe_id, self.year)).T
+            scenarios, areas = data
+        except AttributeError:
+            return None, None
+        else:
+            # Fetch all scenarios and multiply by area.  For erosion, area is adjusted.
+            array = self.scenario_matrix.processed_matrix.fetch_multiple(scenarios, copy=True, aliased=False)
+            array = np.swapaxes(array, 0, 2)
+            array[:, :2] *= areas  # runoff, runoff_mass
+            array[:, 2:] *= (areas / 10000.) ** .12  # erosion, erosion_mass
+            return scenarios, array
+
+    def local_loading(self, recipe_id, cumulative):
+        """Pull all scenarios in recipe from scenario matrix and adjust for area"""
+
+        # Sum time series from all scenarios
+        runoff, runoff_mass, erosion, erosion_mass = cumulative.sum(axis=2).T
+
+        # Run benthic/water column partitioning
+        benthic_conc = self.partition_benthic(recipe_id, runoff, runoff_mass,
+                                              erosion_mass) if self.i.process_benthic else None
+
+        # Add together all masses and update the array
+        transported_mass = runoff_mass + erosion_mass
+
+        if recipe_id in self.outlets:
+            transported_mass, runoff = np.array([transported_mass, runoff]) + self.local.fetch(recipe_id)
+
+        return transported_mass, runoff, benthic_conc
+
+    def partition_benthic(self, reach, runoff, runoff_mass, erosion_mass):
+        from parameters import soil, stream_channel, benthic
+
+        try:
+            reach = self.region.flow_file.fetch(reach)
+            q, v, l = reach.q, reach.v, reach.l
         except AttributeError:
             return None, None, (None, None)
 
         mean_runoff = runoff.mean()  # m3/d
         baseflow = np.subtract(q, mean_runoff, out=np.zeros(self.i.n_dates), where=(q > mean_runoff))
         total_flow = runoff + baseflow
-        concentration = np.divide(transported_mass, total_flow, out=np.zeros(self.i.n_dates), where=(total_flow != 0))
-        runoff_concentration = np.divide(transported_mass, runoff, out=np.zeros(self.i.n_dates), where=(runoff != 0))
+        mixing_cell = 40.  # meters
+        cross_section = total_flow / v
+        width = stream_channel.a * np.power(cross_section, stream_channel.b)
+        depth = cross_section / width
+        surface_area = width * l
+        volume = np.array([(depth * surface_area),  # Water column
+                           (benthic.depth * surface_area * benthic.porosity)])  # Benthic zone
 
-        return total_flow, baseflow, map(lambda x: x * 1000000., (concentration, runoff_concentration))  # kg/m3 -> ug/L
+        # Compute concentration in runoff of runoff mass and erosion mass
+        runoff_conc = np.divide(runoff_mass, runoff, out=np.zeros(self.i.n_dates), where=(runoff != 0))
+        daily_conc = np.divide(runoff_mass + erosion_mass, mixing_cell, out=np.zeros(self.i.n_dates),
+                               where=(runoff_mass + erosion_mass > 0.0) & (mixing_cell > 0.0))
+
+        # Divide mass loading between water column and benthic zones
+        mass_input = np.vstack([runoff_mass + ((1. - soil.prben) * erosion_mass),  # Water Column
+                                soil.prben * erosion_mass]).T  # Benthic
+        # Partition concentration into benthic and water column concentrations
+        # This needs to be cleaned up
+        # Compute benthic solute holding capacity
+        fw1, fw2, theta, sed_conv_factor, omega = solute_holding_capacity(depth, surface_area, self.i.koc)
+
+        k_adj = np.array((total_flow / mixing_cell) + (self.i.deg_photolysis + self.i.deg_hydrolysis) * fw1 + \
+                         (self.i.deg_wc * fw1) + self.i.deg_benthic * (1 - fw1))
+
+        aqconc_avg_wb, daily_avg, daily_peak = \
+            concentration_loop(self.i.n_dates, daily_conc, k_adj, volume,
+                               mass_input, fw1, fw2, omega, theta, self.i.deg_aqueous)
+
+        return map(lambda x: x * 1000000., (runoff_conc, aqconc_avg_wb, daily_avg, daily_peak))
 
     def process_recipes(self, recipe_ids):
-        recipe_ids = set(recipe_ids) - self.processed
-        for recipe_id in recipe_ids:
-            try:
-                scenarios, areas = self.region.recipe_map.fetch((recipe_id, self.year)).T
-            except AttributeError:
-                pass
-            else:
-                array = self.scenario_matrix.copy
-                cumulative = array[scenarios].T  # (n_dates, attributes, n_scenarios)
-                cumulative[:, :2] *= areas
-                cumulative[:, 2:] *= (areas / 10000.) ** .12
-                scenario_names = self.scenario_matrix.scenarios[scenarios]
-                classes = [int(name.split("cdl")[1]) for name in scenario_names]
-                masses = cumulative[:, [1, 3]].sum(axis=(0, 1))
-                self.contribution_by_crop += np.bincount(classes, weights=masses, minlength=255)
-                runoff, runoff_mass, erosion, erosion_mass = cumulative.sum(axis=2).T
-                transported_mass = runoff_mass + erosion_mass
+        for _, recipe_id in enumerate(recipe_ids):
 
-                # Write output if needed
-                if self.filter is None or recipe_id in self.filter:
-                    write_output(self.output_path, self.year, "local", recipe_id, self.i.dates,
-                                 runoff=runoff, runoff_mass=runoff_mass,
-                                 erosion=erosion, erosion_mass=erosion_mass,
-                                 transported_mass=transported_mass)
-        self.processed |= recipe_ids
+            # Fetch time series data from all scenarios in recipe
+            scenarios, time_series = self.fetch_scenarios(recipe_id)
+
+            if scenarios is not None:
+                # Assess the contributions to the recipe from each source (runoff/erosion) and crop
+                self.calculate_contributions(scenarios, time_series[:, [1, 3]].sum(axis=0))
+
+                # Process local contributions
+                local_mass, local_runoff, benthic_conc = self.local_loading(recipe_id, time_series)
+
+                # Update local array with mass and runoff
+                self.local.update(recipe_id, np.array([local_mass, local_runoff]))
+
+                # Process upstream contributions
+                total_flow, total_runoff, total_mass, total_conc = self.upstream_loading(recipe_id)
+
+                # Calculate exceedances
+                exceedances = self.calculate_exceedances(total_conc)
 
 
-    def process_upstream(self, reach):
+                # Store results in output array
+                self.update_output(recipe_id, benthic_conc, total_flow, total_runoff, total_mass, total_conc)
+
+    def update_output(self, recipe_id, benthic_conc=None, total_flow=None, total_runoff=None, total_mass=None,
+                      total_conc=None):
+
+        writer = self.output.writer
+        index = self.recipe_ids.index(recipe_id)
+
+        # This must match self.fields as designated in __init__
+        rows = [benthic_conc, total_flow, total_runoff, total_mass, total_conc]
+        for i, row in enumerate(rows):
+            if row is not None:
+                writer[index, i] = row
+        del writer
+
+    def upstream_loading(self, reach):
+        def confine_reaches():
+            indices = np.int16([i for i, r in enumerate(reaches) if r not in self.region.run_reaches])
+            return reaches[indices], times[indices]
 
         from parameters import time_of_travel
 
         # Fetch all upstream reaches and corresponding travel times
-        reaches, times = self.region.upstream_watershed(reach)
-
+        reaches, times = self.region.nav.upstream_watershed(reach)
+        reaches, times = confine_reaches()
         if len(reaches) > 1:  # Don't need to do this if it's a headwater
             # Check here to confirm that all upstream_reaches have been processed?
-            mass_and_runoff = self.fetch_multiple(reaches)[:2]
+            mnr, index = self.local.fetch_multiple(reaches, return_index=True)  # (reaches, mass/runoff, dates)
+            if index is not None:
+                reaches, times = reaches[index], times[index]
             totals = np.zeros((2, self.i.n_dates))  # (mass/runoff, dates)
             for tank in range(np.max(times) + 1):
-                in_tank = mass_and_runoff[:, (times == tank)].sum(axis=1)
+                in_tank = mnr[times == tank].sum(axis=0)
                 if tank > 0:
                     if time_of_travel.gamma_convolve:
                         irf = self.region.irf.fetch(tank)  # Get the convolution function
@@ -480,58 +569,107 @@ class RecipeMatrix(MemoryMatrix):
                     else:
                         in_tank = np.pad(in_tank[:, :-tank], ((0, 0), (tank, 0)), mode='constant')
                 totals += in_tank  # Add the convolved tank time series to the total for the reach
-            transported_mass, runoff = totals
+            mass, runoff = totals
         else:
-            transported_mass, runoff = self.fetch(reach)
+            mass, runoff = self.local.fetch(reach)
 
-        total_flow, baseflow, (concentration, runoff_conc) = self.concentration(reach, transported_mass, runoff)
+        total_flow, (concentration, runoff_conc) = self.compute_concentration(reach, mass, runoff)
 
-        if self.filter is None or reach in self.filter:
-            write_output(self.output_path, self.year, "full", reach, self.i.dates, total_flow, baseflow, runoff,
-                         transported_mass, total_conc=concentration, runoff_conc=runoff_conc)
+        return total_flow, runoff, mass, concentration
 
-    def time_of_travel(self, recipe_ids, lake):
-        import time
-        active_recipes = self.region.active_reaches & set(recipe_ids)  # JCH - confirm things here?
+    def write_contributions(self):
+        out_file = os.path.join(self.output_dir, "{}_contributions.csv".format(self.i.chemical_name))
+        active_crops = np.where(self.contributions.sum(axis=0) > 0)[0]
+        df = pd.DataFrame(data=self.contributions[:, active_crops].T, index=active_crops, columns=["Runoff", "Erosion"])
+        df.to_csv(out_file)
 
-        # Process reaches
-        reaches_to_run = active_recipes - self.finished
-        for reach in reaches_to_run:
-            self.process_upstream(reach)
-        self.finished |= reaches_to_run
+    def write_time_series(self, recipe_id, fields='all'):
+        if fields == 'all':
+            fields = self.output_fields
+            field_indices = np.arange(len(self.output_fields))
+        else:
+            field_indices = [self.output_fields.index(field) for field in fields]
 
-        # Process lake
-        if lake is not None:
-            self.burn_reservoir(lake, active_recipes)
+        heading_lookup = {'runoff_conc': 'RunoffConc(ug/L)',
+                          'local_runoff': 'LocalRunoff(m3)',
+                          'total_runoff': 'TotalRunoff(m3)',
+                          'local_mass': 'LocalMass(m3)',
+                          'total_flow': 'TotalFlow(m3)',
+                          'baseflow': 'Baseflow(m3)',
+                          'total_conc': 'TotalConc(ug/L)',
+                          'total_mass': 'TotalMass(kg)',
+                          'wc_conc': 'WC_Conc(ug/L)',
+                          'erosion': 'Erosion(kg)',
+                          'erosion_mass': 'ErodedMass(kg)',
+                          'runoff_mass': 'RunoffMass(kg)',
+                          'benthic_conc': 'BenthicConc(ug/L)'}
+
+        headings = [heading_lookup.get(field, "N/A") for field in fields]
+        out_data = self.output.fetch(recipe_id)[field_indices].T
+        df = pd.DataFrame(data=out_data, index=self.i.dates, columns=headings)
+        df.to_csv(os.path.join(self.output_dir, "time_series_{}.csv".format(recipe_id)))
 
 
-class ScenarioMatrix(MemoryMatrix):
-    def __init__(self, i, input_memmap, stored=None, overwrite=False):
+class ScenarioMatrices(object):
+    def __init__(self, i, input_memmap_path, retain=None):
         self.i = i
-        self.header = ("runoff_mass", "erosion_mass", "total_runoff", "total_erosion")
-        self.input_memmap = input_memmap
-        self.scenarios = self.input_memmap.scenarios
+        self.path, self.base = os.path.split(input_memmap_path)
+        self.keyfile_path = input_memmap_path + "_key.txt"
 
-        if not stored:
-            super(ScenarioMatrix, self).__init__(self.scenarios, len(self.header), i.dates.size, "scenario")
-            self.populate()
+        # Load key file for interpreting input matrices
+        self.arrays, self.variables, self.scenarios, \
+        self.array_shape, self.variable_shape, self.start_date, self.n_dates = self.load_key()
+
+        # Calculate date offsets
+        self.end_date, self.start_offset, self.end_offset = self.date_offsets()
+
+        # Initialize input matrices
+        self.array_matrix = MemoryMatrix(self.scenarios, len(self.arrays), self.n_dates, self.path,
+                                         self.base + "_arrays_matrix", name="arrays", input_only=True)
+        self.variable_matrix = MemoryMatrix(self.scenarios, len(self.variables), path=self.path,
+                                            base=self.base + "_vars_matrix", name="variables", input_only=True)
+        if retain:
+            self.processed_matrix = MemoryMatrix(self.scenarios, 4, i.dates.size, path=self.path, base=retain,
+                                                 name="scenario", overwrite=False)
         else:
-            if overwrite and os.path.exists(stored):
-                os.remove(stored)
-            super(ScenarioMatrix, self).__init__(self.scenarios, len(self.header), i.dates.size, "scenario",
-                                                 existing=stored)
-            if not self.exists:
-                self.populate()
+            self.processed_matrix = MemoryMatrix(self.scenarios, 4, i.dates.size, name="scenario")
 
-    def populate(self):
-        array = self.writer
-        for n, scenario_id in enumerate(self.scenarios):
-            if not (n + 1) % 1000:
-                print("\t{}/{}".format(n + 1, len(self.scenarios)))
-            array[n] = self.process_scenario(scenario_id)
-        del array
+        # Populate scenario matrix if it doesn't exist
+        if self.processed_matrix.new:
+            self.process_scenarios()
 
-    def process_applications(self, active_crops, event_dates, plant_factor, rain, covmax):
+        self.inspect()
+
+    def date_offsets(self):
+        end_date = self.start_date + np.timedelta64(self.n_dates, 'D')
+        assert self.start_date <= self.i.sim_date_start and end_date >= self.i.sim_date_end, \
+            "Simulation dates extend beyond range of dates in scenario matrix"
+        start_offset = (self.i.sim_date_start - self.start_date).astype(int)
+        end_offset = (self.i.sim_date_end - end_date).astype(int) + 1
+        return end_date, start_offset, end_offset
+
+    def extract_scenario(self, scenario_id):
+
+        arrays = self.array_matrix.fetch(scenario_id)[:, self.start_offset:self.end_offset]
+        variables = self.variable_matrix.fetch(scenario_id)
+        leaching, runoff, erosion, soil_water, plant_factor, rain = arrays
+        covmax, org_carbon, bulk_density, plant_beg, harvest_beg, emerg_beg, bloom_beg, mat_beg = variables
+        events = {'plant': plant_beg, 'emergence': emerg_beg, 'maturity': mat_beg, 'harvest': harvest_beg}
+        return events, runoff, erosion, leaching, org_carbon, bulk_density, soil_water, plant_factor, rain, covmax
+
+    def inspect(self):
+        """Make sure expected arrays and variables are present"""
+        """Make sure array index and variable index are identical"""
+        pass
+
+    def load_key(self):
+        with open(self.keyfile_path) as f:
+            arrays, variables, scenarios = (next(f).strip().split(",") for _ in range(3))
+            start_date = np.datetime64(next(f).strip())
+            shape = np.array([int(val) for val in next(f).strip().split(",")])
+        return arrays, variables, np.array(scenarios), shape[:3], shape[3:], start_date, int(shape[2])
+
+    def pesticide_applications(self, active_crops, event_dates, plant_factor, rain, covmax):
 
         from parameters import soil, plant
 
@@ -541,12 +679,10 @@ class ScenarioMatrix(MemoryMatrix):
 
         # Determine how much pesticide is applied and when
         for app in scenario_applications:
-            if app.method == 'ground':
-                index = 0
-            elif app.method == 'foliar':
-                index = 1
+            index = ['groud', 'foliar'].index(app.method)
+            if index:
                 canopy_applications = True
-            start_dates = np.int16(self.i.new_years + event_dates[app.event] + app.offset)
+            start_dates = np.int16(self.i.new_year + event_dates[app.event] + app.offset)
             first_window = \
                 np.repeat(start_dates, app.window1) + np.tile(np.arange(app.window1), len(start_dates))
             application_mass[index, first_window] += (app.rate * (app.pct1 / 100.)) / app.window1
@@ -564,33 +700,7 @@ class ScenarioMatrix(MemoryMatrix):
 
         return pesticide_mass_soil
 
-    def process_scenario(self, scenario_id):
-
-        from parameters import crop_groups
-
-        crop = int(scenario_id.split("cdl")[1])
-        all_crops = {crop} | crop_groups.get(crop, set())
-        active_crops = self.i.crops & all_crops
-
-        # Calculate pesticide loading if any pesticide is applied to this scenario
-        event_dates, runoff, erosion, leaching, org_carbon, bulk_density, soil_water, plant_factor, rain, covmax = \
-            self.input_memmap.extract_scenario(scenario_id)
-
-        if active_crops:
-
-            # Compute pesticide application that winds up in soil
-            pesticide_mass_soil = \
-                self.process_applications(active_crops, event_dates, plant_factor, rain, covmax)
-
-            # Determine the loading of pesticide into runoff and erosion
-            runoff_mass, erosion_mass = \
-                self.transport(pesticide_mass_soil, runoff, erosion, leaching, org_carbon, bulk_density, soil_water)
-        else:
-            runoff_mass, erosion_mass = np.zeros((2, self.i.n_dates))  # runoff mass, erosion mass, runoff, erosion
-
-        return np.array([runoff, runoff_mass, erosion, erosion_mass])
-
-    def transport(self, pesticide_mass_soil, runoff, erosion, leaching, org_carbon, bulk_density, soil_water):
+    def pesticide_transport(self, pesticide_mass_soil, runoff, erosion, leaching, org_carbon, bulk_density, soil_water):
         """ Simulate transport of pesticide through runoff and erosion """
         from parameters import soil
 
@@ -628,27 +738,55 @@ class ScenarioMatrix(MemoryMatrix):
 
         return runoff_mass, erosion_mass
 
+    def process_scenario(self, scenario_id, leaching, runoff, erosion, soil_water, plant_factor, rain, covmax,
+                         org_carbon, bulk_density, event_dates):
 
-def impulse_response_function(alpha, beta, length):
-    def gamma_distribution(t, a, b):
-        a, b = map(float, (a, b))
-        tau = a * b
-        try:
-            out_val = ((t ** (a - 1)) / (((tau / a) ** a) * math.gamma(a))) * math.exp(-(a / tau) * t)
-        except OverflowError:  # JCH - better way to manage this?
-            out_val = 0
-        return out_val
+        from parameters import crop_groups
 
-    return np.array([gamma_distribution(i, alpha, beta) for i in range(length)])
+        crop = int(scenario_id.split("cdl")[1])
+        all_crops = {crop} | crop_groups.get(crop, set())
+        active_crops = self.i.crops & all_crops
 
+        if active_crops:
 
-@njit
-def cumulative_multiply_and_add(a, b):
-    out_array = np.zeros(a.size)
-    out_array[0] = a[0]
-    for i in range(1, a.size):
-        out_array[i] = out_array[i - 1] * b[i - 1] + a[i]
-    return out_array
+            # Compute pesticide application that winds up in soil
+            pesticide_mass_soil = \
+                self.pesticide_applications(active_crops, event_dates, plant_factor, rain, covmax)
+
+            # Determine the loading of pesticide into runoff and erosion
+            runoff_mass, erosion_mass = \
+                self.pesticide_transport(pesticide_mass_soil, runoff, erosion, leaching, org_carbon, bulk_density,
+                                         soil_water)
+
+        else:
+            runoff_mass, erosion_mass = np.zeros((2, self.i.n_dates))
+
+        return np.array([runoff, runoff_mass, erosion, erosion_mass])
+
+    def process_scenarios(self, chunk=5000):
+        array_reader = self.array_matrix.reader
+        variable_reader = self.variable_matrix.reader
+        writer = self.processed_matrix.writer
+        for n, scenario_id in enumerate(self.scenarios):
+            if not n % chunk:
+                del array_reader, variable_reader, writer
+                array_reader = self.array_matrix.reader
+                variable_reader = self.variable_matrix.reader
+                writer = self.processed_matrix.writer
+            # Extract arrays
+            leaching, runoff, erosion, soil_water, plant_factor, rain = \
+                array_reader[n][:, self.start_offset:self.end_offset]
+
+            # Extract variables
+            covmax, org_carbon, bulk_density, plant_beg, harvest_beg, emerg_beg, bloom_beg, mat_beg = \
+                variable_reader[n]
+
+            events = {'plant': plant_beg, 'emergence': emerg_beg, 'maturity': mat_beg, 'harvest': harvest_beg}
+
+            writer[n] = self.process_scenario(scenario_id, leaching, runoff, erosion, soil_water, plant_factor,
+                                              rain, covmax, org_carbon, bulk_density, events)
+
+        del array_reader, variable_reader, writer
 
 
 @njit
@@ -671,28 +809,204 @@ def canopy_loop(n_dates, application_mass, plant_factor, covmax, soil_2cm, folia
     return canopy_to_soil
 
 
-def write_output(output_path, year, mode, recipe_id, dates, total_flow=None, baseflow=None, runoff=None,
-                 runoff_mass=None, erosion=None, erosion_mass=None, runoff_conc=None, total_conc=None, wc_conc=None,
-                 benthic_conc=None, wc_peak=None, benthic_peak=None, transported_mass=None):
-    fields = ([("TotalFlow(m3)", total_flow),
-               ("Baseflow(m3)", baseflow),
-               ("Runoff(m3)", runoff),
-               ("RunoffMass(kg)", runoff_mass),
-               ("Erosion(kg)", erosion),
-               ("ErodedMass(kg)", erosion_mass),
-               ("TransportedMass(kg)", transported_mass),
-               ("RunoffConc(ug/L)", runoff_conc),
-               ("TotalConc(ug/L)", total_conc),
-               ("WC_Conc(ug/L)", wc_conc),
-               ("Benthic_Conc(ug/L)", benthic_conc),
-               ("WC_Peak(ug/L)", wc_peak),
-               ("Benthic_Peak(ug/L)", benthic_peak)])
+@njit
+def concentration_loop(n_dates, daily_concentration, k_adj, daily_volume, mass_input, fw1, fw2, omega, theta, deg_aq):
+    # Beginning day aquatic concentrations, considered Peak Aqueous Daily Conc in Water Column
+    daily_peak = np.zeros((2, n_dates))
+    daily_avg = np.zeros((2, n_dates))
+    aqconc_avg_wb = np.zeros(n_dates)
 
-    out_dir = os.path.dirname(output_path)
-    if not os.path.exists(out_dir):
-        os.mkdir(out_dir)
-    outfile = output_path.format(recipe_id, year, mode)
+    # Reset starting values
+    exp_k = np.exp(-k_adj)
+    aqconc_wb = 0
+    antecedent_mass = np.zeros(2)  # mn
 
-    header, data = zip(*filter(lambda x: x[1] is not None, fields))
-    df = pd.DataFrame(np.array(data).T, dates, header, dtype=np.float32)
-    df.to_csv(outfile)
+    for day in range(daily_concentration.size):
+        # Add mass input to antecedent mass
+        daily_mass = antecedent_mass + mass_input[day]
+
+        # Convert to aqueous concentrations (peak) at beginning of day
+        # JCH - fw comes from solute_holding_capacity. Fraction going into each section. Should fw[0] + fw[1] = 1?
+        daily_peak[0, day] = daily_mass[0] * fw1[day] / daily_volume[day, 0]
+        daily_peak[1, day] = daily_mass[1] * fw2[day] / daily_volume[day, 1]
+
+        # Compute daily average concentration in the water body - when no Benthic layer considered
+        aqconc_wb += daily_concentration[day]  # initial water body concentration for current time step
+
+        # Daily avg aq conc in water body, area under curve/t = Ci/k*(1-e^-k), NO benthic
+        aqconc_avg_wb[day] = aqconc_wb / k_adj[day] * (1 - exp_k[day])
+
+        # initial water body concentration for next time step
+        aqconc_wb *= exp_k[day]
+
+        # For simul diffeq soln: mn1,mn2,mavg1,mavg2 = new_aqconc1, new_aqconc2, aqconc_avg1[d], aqconc_avg2[d]
+        # Note: aqconc_avg1 and aqconc_avg2 are outputted - Daily avg aq conc in WC and Benthic regions
+        new_aqconc, wc_avg, benthic_avg = simultaneous_diffeq(k_adj[day], deg_aq, omega, theta[day], daily_peak[:, day])
+        daily_avg[0, day] = wc_avg
+        daily_avg[1, day] = benthic_avg
+
+        # Masses m1 and m2 after time step, t_end
+        antecedent_mass[0] = new_aqconc[0] / fw1[day] * daily_volume[day, 0]
+        antecedent_mass[1] = new_aqconc[1] / fw2[day] * daily_volume[day, 1]
+
+    return aqconc_avg_wb, daily_avg, daily_peak
+
+
+@guvectorize(['void(float64[:], float64[:], float64[:])'], '(n),(o)->(n)', nopython=True)
+def cumulative_multiply_and_add(a, b, res):
+    res[0] = a[0]
+    for i in range(1, a.size):
+        res[i] = res[i - 1] * b[i - 1] + a[i]
+
+
+def impulse_response_function(alpha, beta, length):
+    def gamma_distribution(t, a, b):
+        a, b = map(float, (a, b))
+        tau = a * b
+        return ((t ** (a - 1)) / (((tau / a) ** a) * math.gamma(a))) * math.exp(-(a / tau) * t)
+
+    return np.array([gamma_distribution(i, alpha, beta) for i in range(length)])
+
+
+@guvectorize(['void(float64[:], int16[:], int16[:], int16[:], int16[:], float64[:])'], '(p),(o),(o),(p),(n)->(o)',
+             nopython=True)
+def moving_window(time_series, window_sizes, thresholds, years_since_start, year_sizes, res):
+    # Count the number of times the concentration exceeds the test threshold in each year
+    counts = np.zeros((year_sizes.size, window_sizes.size))
+    for test in range(window_sizes.size):
+        window_size = window_sizes[test]
+        threshold = thresholds[test]
+        window_sum = np.sum(time_series[:window_size])
+        for day in range(window_size, len(time_series)):
+            year = years_since_start[day]
+            window_sum += time_series[day] - time_series[day - window_size]
+            avg = window_sum / window_size
+            if avg > threshold:
+                counts[year, test] += 1
+
+    # Average the number of yearly exceedances for each test
+    for test in range(window_sizes.size):
+        exceedance = 0
+        for year in range(year_sizes.size):
+            exceedance += counts[year, test] / year_sizes[year]
+        res[test] = exceedance / year_sizes.size
+
+
+@njit
+def simultaneous_diffeq(gamma1, gamma2, omega, theta, daily_aq_peak):
+    """
+    ANALYTICAL SOLUTION FOR THE TWO SIMULTANEOUS DIFFERENTIAL EQNS:
+              dm1/dt = Am1 + Bm2
+              dm2/dt = Em1 + Fm2
+    WITH INITIAL VALUES m1 AND m2 FOR m1 AND m2
+    mn1 IS OUTPUT VALUE FOR m1 AFTER TIME T
+    mn2 IS OUTPUT VALUE FOR m2 AFTER TIME T
+    mavg1 IS AVERAGE VALUE OF m1 OVER TIME T
+    """
+
+    t_end = 86400.  # seconds, time step of ONE DAY
+    m1, m2 = daily_aq_peak
+
+    # Calculate constants for simultaneous_diffeq: A,B,E,F
+    # This reduces the model equivalent parameters to the coefficients needed for solving simultaneous_diffeq
+    a = -gamma1 - omega * theta
+    b = omega * theta
+    e = omega
+    f = -gamma2 - omega
+
+    af = a + f
+    dif = 4 * ((f * a) - (b * e))
+    bbb = np.sqrt(af * af - dif)
+
+    root1 = (af + bbb) / 2.
+    root2 = (af - bbb) / 2.
+
+    dd = (root1 - a) / b
+    ee = (root2 - a) / b
+    ff = ee - dd
+    x1 = (ee * m1 - m2) / ff
+    y1 = (m2 - dd * m1) / ff
+
+    # Calculate new concentrations for next step
+    rt1 = root1 * t_end
+    rt2 = root2 * t_end
+    exrt1 = np.exp(rt1)
+    exrt2 = np.exp(rt2)
+    ccc = x1 * exrt1
+    ddd = y1 * exrt2
+
+    # values for m1 and m2 after time step t_end
+    mn = np.zeros(2)
+    mn[0] = ccc + ddd  # Water column
+    mn[1] = dd * ccc + ee * ddd  # Benthic
+
+    # AVERAGE DAILY CONCENTRATION SOLUTION: set up for daily average, but can be changed by adjusting time step
+    gx = x1 / root1
+    hx = y1 / root2
+
+    term1 = gx * exrt1  # term3 = -X1/root1*exp(root1*T1)
+    term2 = hx * exrt2  # term4 = -Y1/root2*exp(root2*T1
+    term3 = -gx
+    term4 = -hx
+
+    mavg_wc = (term1 + term2 + term3 + term4) / t_end  # Water column
+    mavg_ben = (term1 * dd + term2 * ee + term3 * dd + term4 * ee) / t_end  # Benthic
+
+    return mn, mavg_wc, mavg_ben
+
+
+def solute_holding_capacity(depth, surface_area, koc):
+    """Calculates Solute Holding capacities and mass transfer between water column and benthic regions"""
+
+    from parameters import benthic, water_column
+
+    # Aqueous volumes in each region
+    vol1 = depth * surface_area  # total volume in water column, approximately equal to water volume alone
+    vol2a = benthic.depth * surface_area  # total benthic volume
+    vol2 = vol2a * benthic.porosity  # total benthic pore water volume
+
+    # Default EXAMS conditions for partitioning
+    kow = koc / .35  # DEFAULT EXAMS CONDITION ON Kow  p.35
+    kpdoc1 = kow * .074  # DEFAULT RELATION IN EXAMS (LITTORAL)
+    kpdoc2 = koc  # DEFAULT RELATION IN EXAMS (BENTHIC) p.16 of EXAMS 2.98 (or is it Kow*.46 ?)
+    xkpb = 0.436 * kow ** .907  # DEFAULT RELATION IN EXAMS
+
+    # mass in littoral region
+    vol1a = depth[0] * surface_area  # initial volume corresponding with suspended matter reference
+    m_sed_1 = water_column.sused * vol1a * .001  # SEDIMENT MASS LITTORAL
+    m_bio_1 = water_column.plmas * vol1a * .001  # BIOLOGICAL MASS LITTORAL
+    m_doc_1 = water_column.doc * vol1a * .001  # DOC MASS LITTORAL
+
+    # partitioning coefficients of individual media
+    kd_sed_1 = koc * water_column.froc * .001  # Kd of sediment in littoral [m3/kg]
+    kd_sed_2 = koc * benthic.froc * .001  # Kd of sediment in benthic
+    kd_bio = xkpb / 1000.  # Kd of biological organisms
+    kd_doc_1 = kpdoc1 / 1000.  # Kd of DOC in littoral region
+    kd_doc_2 = kpdoc2 / 1000.  # Kd of DOC in benthic region
+
+    # mass in benthic region
+    m_sed_2 = benthic.bulk_density * vol2a * 1000.  # as defined by EXAMS parameters m_sed_2 = BULKD/PCTWA*VOL2*100000.
+    m_bio_2 = benthic.bnmas * surface_area * .001
+    m_doc_2 = benthic.doc * vol2 * .001
+
+    # solute holding capacity in regions 1 and 2
+    capacity_1 = kd_sed_1 * m_sed_1 + kd_bio * m_bio_1 + kd_doc_1 * m_doc_1 + vol1
+    capacity_2 = kd_sed_2 * m_sed_2 + kd_bio * m_bio_2 + kd_doc_2 * m_doc_2 + vol2
+
+    # Fraction going to water column and benthic
+    fw1 = vol1 / capacity_1  # fw1 is daily, vol1 is daily
+    fw2 = vol2 / capacity_2
+
+    theta = capacity_2 / capacity_1
+
+    sed_conv_factor = vol2 / fw2 / m_sed_2  # converts pore water to [Total Conc normalized to sed mass]
+
+    # Omega mass transfer - Calculates littoral to benthic mass transfer coefficient
+    omega = benthic.d_over_dx / benthic.depth  # (m3/hr)/(3600 s/hr)
+
+    return fw1, fw2, theta, sed_conv_factor, omega
+
+
+if __name__ == "__main__":
+    from pesticide_calculator import main
+    main()

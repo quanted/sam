@@ -1,37 +1,33 @@
-import functions as func
-from parameters import write_list
-from parameters import paths as p
+from parameters import write_list, paths as p
+from functions import InputFile, Hydroregion, ScenarioMatrices, RecipeMatrices
 
 # Existential questions:
-# Recipe map takes a while to load
-# Scenarios loading from memmap, but there's going to be a structural change (region to metfile?)
-# Run area
-# Output types
-# Checks for completeness
+# Better inspections: check for (and report on) dates, missing data (scenarios, etc), other failures
+# Benthic partitioning
 
 
 def pesticide_calculator(input_data):
 
     # Initialize parameters from front end
-    inputs = func.InputFile(input_data)
+    inputs = InputFile(input_data)
 
     # Load watershed topology maps and account for necessary files
     print("Initializing watershed...")
-    region = func.Hydroregion(inputs, p.map_path, p.flow_dir, p.upstream_path, p.lakefile_path, p.input_scenario_path)
+    region = Hydroregion(inputs, p.map_path, p.flow_dir, p.upstream_path, p.lakefile_path)
 
+    # Simulate application of pesticide to all input scenarios
     print("Processing scenarios...")
-    scenario_matrix = \
-        func.ScenarioMatrix(inputs, region.scenario_memmap,
-                            stored=r'..\bin\Preprocessed\mtb_{}.dat'.format(inputs.chemical_name), overwrite=False)
+    scenarios = ScenarioMatrices(inputs, p.input_scenario_path, retain="mtb_" + inputs.chemical_name)
 
-    region.years = [2010]  # JCH - temporary
-    for year in region.years:
+    # Cascade downstream processing watershed recipes and performing travel time analysis
+    for year in inputs.manual_years:
         print("Processing recipes for {}...".format(year))
-        recipe_matrix = func.RecipeMatrix(inputs, year, region, scenario_matrix, p.output_path, write_list=write_list)
+        recipes = RecipeMatrices(inputs, year, region, scenarios, p.output_path, write_list=write_list)
         for reaches, lake in region.cascade():
-            recipe_matrix.process_recipes(reaches)
-            recipe_matrix.time_of_travel(reaches, lake)
+            recipes.process_recipes(reaches)
+            recipes.burn_reservoir(lake, reaches)
 
+        recipes.write_time_series(4867727)
 
 def main(input_data=None):
     if input_data is None:
@@ -46,8 +42,8 @@ if __name__ == "__main__":
     time_it = True
     if time_it:
         import cProfile
-        for chemical in (chlorpyrifos,):
+        for chemical in (atrazine, ):
             cProfile.run('main({})'.format(chemical))
     else:
-        for chemical in (chlorpyrifos,):
+        for chemical in (atrazine,):
             main(chemical)

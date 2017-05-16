@@ -3,7 +3,8 @@ import numpy as np
 import os
 import csv
 import pickle
-from trip_tools import Navigator, read_dbf
+from utilities import read_dbf
+from functions import Navigator
 from collections import defaultdict
 
 
@@ -53,9 +54,13 @@ def write_lentics(output_path, lentics):
 def make_lakebins(nav, waterbody_outlets, wb_dict):
     lake_bins = defaultdict(set)
     for waterbody, outlet in waterbody_outlets.items():
-        upstream_reaches = nav.upstream_watershed(outlet)
-        upstream_lakes = list(filter(None, {wb_dict.get(reach) for reach in upstream_reaches}))
-        lake_bins[len(upstream_lakes)].add(waterbody)
+        upstream_reaches = nav.upstream_watershed(outlet, return_times=False)
+        try:
+            upstream_lakes = \
+                list(filter(lambda x: x is not None and x > 0, {wb_dict.get(reach) for reach in upstream_reaches}))
+            lake_bins[len(upstream_lakes)].add(waterbody)
+        except TypeError:
+            print("Waterbody/outlet {}/{} failed".format(waterbody, outlet))
     return lake_bins
 
 
@@ -75,14 +80,16 @@ def make_laketable(lake_bins, waterbody_outlets, residence_times):
     dtypes = ["<i4", "<i4", "<i4", "f4"]
 
     rows = np.zeros(len(residence_times.keys()), dtype=list(zip(header, dtypes)))
-    for i, (lake_bin, lakes) in enumerate(lake_bins.items()):
+    index = 0
+    for lake_bin, lakes in lake_bins.items():
         for lake in lakes:
             outlet = waterbody_outlets.get(lake)
             residence_time = residence_times.get(lake)
             if outlet and residence_time and residence_time >= 1.5:
                 new_lake = (lake_bin, lake, outlet, residence_time)
-                rows[i] = new_lake
-    matrix = np.array(rows[:i])
+                rows[index] = new_lake
+                index += 1
+    matrix = np.array(rows[:index])
     return pd.DataFrame(data=matrix).sort_values("LakeBin")
 
 
@@ -105,19 +112,20 @@ def generate_lakefile(nav, wbcomid_path, volume_path, flow_path, outfile_path):
 # This should be easy though, right?
 
 def main():
-    from trip_tools import nhd_states
+    from utilities import nhd_states
 
     for region in nhd_states.keys():
-        print(region)
-        nav = Navigator(region)
-        nhd_path = r"T:\NationalData\NHDPlusV2"
-        wbcomid_path = os.path.join(nhd_path, "NHDPlus{}", "NHDSnapshot", "Hydrography", "NHDFlowline.dbf").format(
-            region)
-        volume_path = os.path.join(r"T:\NationalData\LakeMorphometry", "region_{}.dbf").format(region)
-        flow_path = os.path.join(nhd_path, "NHDPlus{}", "EROMExtension", "EROM_MA0001.dbf").format(region)
-        outfile_path = os.path.join(r"C:\SAM_repository\LakeFiles", "region_{}.csv").format(region)
+        if region == '07':
+            print(region)
+            nhd_path = r"T:\NationalData\NHDPlusV2"
+            nav = Navigator(region, r"S:\bin\Preprocessed\Upstream\upstream_{}.npz")
+            wbcomid_path = os.path.join(nhd_path, "NHDPlus{}", "NHDSnapshot", "Hydrography", "NHDFlowline.dbf").format(
+                region)
+            volume_path = os.path.join(r"T:\NationalData\LakeMorphometry", "region_{}.dbf").format(region)
+            flow_path = os.path.join(nhd_path, "NHDPlus{}", "EROMExtension", "EROM_MA0001.dbf").format(region)
+            outfile_path = os.path.join(r"S:\bin\Preprocessed\LakeFiles", "region_{}.csv").format(region)
 
-        generate_lakefile(nav, wbcomid_path, volume_path, flow_path, outfile_path)
+            generate_lakefile(nav, wbcomid_path, volume_path, flow_path, outfile_path)
 
 
 main()

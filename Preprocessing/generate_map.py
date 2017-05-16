@@ -30,10 +30,10 @@ def max_scenarios(local_sets):
 
 def make_table(local_sets, outfile, scenario_matrix, n_scenarios):
     # Read scenario matrix keyfile so that scenario indices match up between matrix and map
-    matrix_key = scenario_matrix + "_key.npy"
-    scenario_index = np.load(matrix_key)[3].as_matrix()
-    scenario_dict = dict(zip(scenario_index, np.arange(scenario_index.size)))
-
+    matrix_key = scenario_matrix + "_key.txt"
+    with open(matrix_key) as f:
+        *_, scenarios = (next(f).strip().split(",") for _ in range(3))
+    scenario_dict = dict(zip(scenarios, np.arange(len(scenarios))))
     recipes = list(local_sets.keys())
     years = sorted({year for local_set in local_sets.values() for year in local_set.keys()})
     n_years = len(years)
@@ -64,7 +64,7 @@ def make_table(local_sets, outfile, scenario_matrix, n_scenarios):
 
 
 def main():
-    scenario_matrix = r"..\bin\Preprocessed\Scenarios\mtb"
+    scenario_matrix = r"..\bin\Preprocessed\Scenarios\mark_twain"
     recipe_path = r"..\bin\Preprocessed\Recipes\MTB\nhd_recipe_{}_{}.txt"
     output_file = os.path.join(r"..\bin\Preprocessed\InputMaps", "mtb_map1")
 

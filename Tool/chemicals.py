@@ -3,7 +3,7 @@ chlorpyrifos = \
          {"chemical_name": "chlorpyrifos",
           "region": "07",
           "applications":
-          #crop,event,offset,window1,pct_applied1,window2,pct_applied2,rate,method,refine
+          # crop,event,offset,window1,pct_applied1,window2,pct_applied2,rate,method,refine
               "10,emergence,3,10,100,0,0,1.1,foliar,uniform_step\n"
               "10,emergence,23,10,100,0,0,1.1,foliar,uniform_step\n"
               "40,emergence,-7,10,100,0,0,1.1,ground,uniform_step\n"
@@ -24,8 +24,8 @@ chlorpyrifos = \
           "hydrolysis_hl": "0",
           "kd_flag": "1",
           "koc": "6040",
-          "sim_date_start": "01/01/2000",
-          "sim_date_end": "12/31/2014",
+          "sim_date_start": "2000-01-01",
+          "sim_date_end": "2014-12-31",
           "output_type": "2",
           "output_time_avg_conc": "1",
           "output_avg_days": "4",
@@ -43,8 +43,21 @@ atrazine = \
          {"chemical_name": "atrazine",
           "region": "07",
           "applications":
-              #crop,event,offset,window1,pct_applied1,window2,pct_applied2,rate,method,refine
-              "10,plant,14,50,100,0,0,1.32,ground,uniform_step",
+          # crop,event,offset,window1,pct_applied1,window2,pct_applied2,rate,method,refine
+              "10,emergence,3,10,100,0,0,1.1,foliar,uniform_step\n"
+              "90,emergence,17,10,100,0,0,1.1,foliar,uniform_step",
+          "thresholds":
+          # duration, level, name
+              "4,2650,Acute FW Fish\n"
+              "4,1000,Acute EM Fish\n"
+              "4,360,Acute FW Invertebrate\n"
+              "4,24,Acute EM Invertebrate\n"
+              "4,1,Non-Vascular Plants\n"
+              "4,4.6,Vascular Plants\n"
+              "21,60,Chronic FW Invertebrate\n"
+              "21,80,Chronic EM Invertebrate\n"
+              "60,0.5,Chronic FW Fish\n"
+              "60,3.4,CELOC\n",
           "soil_hl": "139",
           "wc_metabolism_hl": "277",
           "ben_metabolism_hl": "277",
@@ -52,8 +65,8 @@ atrazine = \
           "hydrolysis_hl": "0",
           "kd_flag": "1",
           "koc": "75",
-          "sim_date_start": "01/01/2000",
-          "sim_date_end": "12/31/2014",
+          "sim_date_start": "2000-01-01",
+          "sim_date_end": "2014-12-31",
           "output_type": "2",
           "output_time_avg_conc": "1",
           "output_avg_days": "4",
@@ -65,3 +78,4 @@ atrazine = \
           "processes": "1"
           },
      "run_type": "single"}
+
