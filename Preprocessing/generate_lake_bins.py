@@ -3,8 +3,8 @@ import numpy as np
 import os
 import csv
 import pickle
-from utilities import read_dbf
-from functions import Navigator
+from Preprocessing.utilities import read_dbf
+from Tool.functions import Navigator
 from collections import defaultdict
 
 
@@ -112,20 +112,19 @@ def generate_lakefile(nav, wbcomid_path, volume_path, flow_path, outfile_path):
 # This should be easy though, right?
 
 def main():
-    from utilities import nhd_states
+    from Preprocessing.utilities import nhd_states
 
     for region in nhd_states.keys():
-        if region == '07':
-            print(region)
-            nhd_path = r"T:\NationalData\NHDPlusV2"
-            nav = Navigator(region, r"S:\bin\Preprocessed\Upstream\upstream_{}.npz")
-            wbcomid_path = os.path.join(nhd_path, "NHDPlus{}", "NHDSnapshot", "Hydrography", "NHDFlowline.dbf").format(
-                region)
-            volume_path = os.path.join(r"T:\NationalData\LakeMorphometry", "region_{}.dbf").format(region)
-            flow_path = os.path.join(nhd_path, "NHDPlus{}", "EROMExtension", "EROM_MA0001.dbf").format(region)
-            outfile_path = os.path.join(r"S:\bin\Preprocessed\LakeFiles", "region_{}.csv").format(region)
+        print(region)
+        nhd_path = r"T:\NationalData\NHDPlusV2"
+        nav = Navigator(region, r"..\bin\Preprocessed\Upstream\upstream_{}.npz")
+        wbcomid_path = os.path.join(nhd_path, "NHDPlus{}", "NHDSnapshot", "Hydrography", "NHDFlowline.dbf").format(
+            region)
+        volume_path = os.path.join(r"T:\NationalData\LakeMorphometry", "region_{}.dbf").format(region)
+        flow_path = os.path.join(nhd_path, "NHDPlus{}", "EROMExtension", "EROM_MA0001.dbf").format(region)
+        outfile_path = os.path.join(r"..\bin\Preprocessed\LakeFiles", "region_{}.csv").format(region)
 
-            generate_lakefile(nav, wbcomid_path, volume_path, flow_path, outfile_path)
+        generate_lakefile(nav, wbcomid_path, volume_path, flow_path, outfile_path)
 
 
 main()
