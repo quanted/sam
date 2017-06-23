@@ -4,7 +4,7 @@ import math
 import pandas as pd
 import numpy as np
 from numba import njit
-from functions import MemoryMatrix
+from Tool.functions import MemoryMatrix
 from datetime import datetime
 import time
 
@@ -30,11 +30,9 @@ class InputMatrix(object):
         self.data = pd.read_csv(path, dtype=input_types)
         self.scenarios = self.data.scenario
 
-
     @staticmethod
     def check_scenario(r):
         return min((r.bd_5, r.bd_20, r.fc_5, r.fc_20)) > 0.0009
-
 
     def modify_array(self):
         for var in ('orgC_5', 'cintcp', 'slope', 'covmax', 'sfac', 'anedt', 'amxdr'):
@@ -43,7 +41,6 @@ class InputMatrix(object):
             self.data[var] = np.min((self.data[var], self.data['RZmax'] / 100.))
         for var in ['bd_5', 'bd_20']:
             self.data[var] *= 1000  # kg/m3
-
 
     def iterate_rows(self, report=0, scenario_filter=None):
         # Read all data into pandas table
@@ -63,28 +60,29 @@ class MetfileMatrix(MemoryMatrix):
     def __init__(self, memmap_path):
         self.dir = os.path.dirname(memmap_path)
         self.name = os.path.basename(memmap_path)
-        self.memmap_path = memmap_path + "_matrix.dat"
         self.keyfile_path = memmap_path + "_key.npy"
 
         # Set row/column offsets
         self.start_date, self.end_date, self.metfiles = self.load_key()
+
         self.n_dates = int((self.end_date.astype(int) - self.start_date.astype(int))) + 1
 
         # Set dates
         self.new_years = np.arange(self.start_date, self.end_date + np.timedelta64(365, 'D'),
                                    np.timedelta64(1, 'Y'), dtype='datetime64[Y]').astype('datetime64[D]')
         # Initialize memory matrix
-        super(MetfileMatrix, self).__init__(self.metfiles, self.n_dates, 3, existing=self.memmap_path)
-
+        super(MetfileMatrix, self).__init__(self.metfiles, self.n_dates, 3, path=self.dir,
+                                            base=self.name, input_only=True)
 
     def load_key(self):
 
         try:
             data = np.load(self.keyfile_path)
-            start_date, end_date = map(np.datetime64, data[:2])  # jch - np datetime?
+            start_date, end_date = map(np.datetime64, data[:2])
             metfiles = data[2:]
             return start_date, end_date, metfiles
-        except ValueError:
+        except ValueError as e:
+            print(e)
             exit("Invalid key file {}".format(self.keyfile_path))
 
     def fetch_station(self, station_id):
@@ -92,7 +90,7 @@ class MetfileMatrix(MemoryMatrix):
             data = np.array(super(MetfileMatrix, self).fetch(station_id, copy=True, verbose=False)).T
             data[:2] /= 100.  # Precip, PET  cm -> m
             return data
-        except TypeError:
+        except:
             print("Met station {} not found".format(station_id))
 
 
@@ -106,15 +104,16 @@ class OutputMatrix(object):
                           'plant_beg', 'harvest_beg', 'emerg_beg', 'bloom_beg', 'mat_beg']
 
         # Initalize matrices
-        # self.array_matrix = MemoryMatrix(self.in_matrix.scenarios, len(self.arrays), self.met.n_dates,
-        #                                 name=self.name + "_arrays", out_path=self.dir)
+        self.array_matrix = MemoryMatrix(self.in_matrix.scenarios, len(self.arrays), self.met.n_dates,
+                                         name=self.name + "_arrays", path=self.dir)
 
-        #self.variable_matrix = MemoryMatrix(self.in_matrix.scenarios, len(self.variables),
-        #                                    name=self.name + "_vars", out_path=self.dir)
+        self.variable_matrix = MemoryMatrix(self.in_matrix.scenarios, len(self.variables),
+                                            name=self.name + "_vars", path=self.dir)
 
         # Create key
         self.create_keyfile()
-        #self.populate()
+
+        self.populate()
 
     def create_keyfile(self):
         with open(os.path.join(self.dir, self.name + "_key.txt"), 'w') as f:
@@ -146,24 +145,27 @@ class Scenario(object):
         # Read the metfile corresponding to the scenario
         data = met_matrix.fetch_station(self.weatherID)
 
-        self.precip, self.pet, self.temp = data
+        if data is not None:
+            self.precip, self.pet, self.temp = data
 
-        self.plant_factor, self.emrgbeg, self.matbeg = self.plant_growth()
+            self.plant_factor, self.emrgbeg, self.matbeg = self.plant_growth()
 
-        # Process soil properties
-        self.cn, self.bulk_density, self.field_m, self.soil_water_m, self.wilt_m, self.depth, self.usle_klscp = \
-            self.process_soil()
+            # Process soil properties
+            self.cn, self.bulk_density, self.field_m, self.soil_water_m, self.wilt_m, self.depth, self.usle_klscp = \
+                self.process_soil()
 
-        # Simulate surface hydrology
-        self.rain, self.effective_rain, self.runoff, self.soil_water, self.leaching = self.hydrology()
+            # Simulate surface hydrology
+            self.rain, self.effective_rain, self.runoff, self.soil_water, self.leaching = self.hydrology()
 
-        # Calculate erosion loss
-        self.erosion_loss = self.erosion()
+            # Calculate erosion loss
+            self.erosion_loss = self.erosion()
 
-        self.arrays = np.array(
-            [self.leaching[0], self.runoff, self.erosion_loss, self.soil_water[0], self.plant_factor, self.rain])
-        self.vars = np.array(
-            [self.covmax, self.orgC_5, self.bd_5, self.plntbeg, self.hvstbeg, self.emrgbeg, self.blmbeg, self.matbeg])
+            self.arrays = np.array(
+                [self.leaching[0], self.runoff, self.erosion_loss, self.soil_water[0], self.plant_factor, self.rain])
+
+            self.vars = np.array(
+                [self.covmax, self.orgC_5, self.bd_5, self.plntbeg, self.hvstbeg, self.emrgbeg, self.blmbeg,
+                 self.matbeg])
 
     def erosion(self):
 
@@ -465,9 +467,9 @@ def process_erosion(num_records, slope, manning_n, runoff, rain, cn, usle_klscp,
 
 
 def main():
-    input_file = r"S:\bin\Preprocessed\ScenarioMatrices\MTB_scenarios_030717_2.txt"
-    metfile_memmap = r"S:\bin\Preprocessed\MetTables\metfile"
-    output_memmap = r'S:\bin\Preprocessed\Scenarios\mark_twain'
+    input_file = r"..\bin\Preprocessed\ScenarioMatrices\MTB_scenarios_030717_2.txt"
+    metfile_memmap = r"..\bin\Preprocessed\MetTables\metfile"
+    output_memmap = r"..\bin\Preprocessed\Scenarios\mark_twain"
 
     # Initialize input met matrix
     met = MetfileMatrix(metfile_memmap)

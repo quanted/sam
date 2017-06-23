@@ -23,6 +23,8 @@ class MemoryMatrix(object):
 
         # Load from saved file if one is specified, else generate
         path = mkdtemp() if not path else path
+        if not os.path.exists(path):
+            os.makedirs(path)
         base = name if not base else base
         self.path = os.path.join(path, base + ".dat")
         assert not input_only or os.path.exists(self.path), "Matrix {} not found".format(self.path)
@@ -122,7 +124,7 @@ class Hydroregion(object):
     """
 
     def __init__(self, i, map_path, flowfile_dir, upstream_dir, lakefile_dir):
-        from parameters import time_of_travel
+        from .parameters import time_of_travel
 
         self.i = i
         self.id = i.region
@@ -182,21 +184,12 @@ class InputFile(object):
     def __init__(self, input_data):
 
         # Adjust variables
-        from parameters import crop_groups, to_be_added_params
+        from .parameters import to_be_added_params
 
         self.format_inputs(input_data)
 
-        # Dates
-        self.dates = pd.date_range(self.sim_date_start, self.sim_date_end)
-        self.year = self.dates.year
-        self.unique_years, self.year_length = np.unique(self.year, return_counts=True)
-        self.new_year = np.array(
-            [(np.datetime64("{}-01-01".format(year)) - self.sim_date_start).astype(int) for year in self.unique_years])
-        self.n_dates = len(self.dates)
-
         # Crops
         self.crops = {application.crop for application in self.applications}
-        self.all_crops = self.crops | set().union(*[crop_groups.get(crop, set()) for crop in self.crops])
 
         # Convert half-lives to degradation rates
         self.deg_aqueous, self.deg_photolysis, self.deg_hydrolysis, self.deg_wc, self.deg_benthic = \
@@ -206,45 +199,30 @@ class InputFile(object):
                     self.ben_metabolism_hl))
         self.koc /= 1000.0  # now in m3/kg
 
+        self.region = '07' if self.region == 'mtb' else self.region  # temporary, for utool pilot
+
         # Add in hardwired stuff that will eventually go in front end
         self.__dict__.update(to_be_added_params)
 
     def format_inputs(self, data):
 
-        def application_matrix(application_string):
-            from parameters import crop_groups
-            from io import StringIO
+        def application_matrix(applications):
+            new_applications = []
+            Application = namedtuple("Application", sorted({key for app in applications for key in app.keys()}))
+            for application_dict in applications:
+                application_dict['rate'] /= 10000.  # kg/ha -> kg/m2
+                new_applications.append(Application(**application_dict))
+            return new_applications
 
-            appstr = StringIO(application_string)
-            header = ('crop', 'event', 'offset', 'window1', 'pct1', 'window2', 'pct2', 'rate', 'method', 'refine')
-            grid = pd.read_csv(appstr, names=header, sep=",", lineterminator="\n")
-            for old_class, app in grid.iterrows():
-                assert app.method in ("ground", "foliar"), "Invalid application method: {}".format(app.method)
-                for new_class in crop_groups.get(old_class, set()):
-                    new_application = app.copy()
-                    grid.loc[new_class] = new_application
-            grid.rate /= 10000.  # kg/ha -> kg/m2
-
-            Application = namedtuple("Application", header)
-
-            return [Application(**row.to_dict()) for _, row in grid.iterrows()]
-
-        def threshold_matrix(threshold_string):
-            from io import StringIO
-
-            appstr = StringIO(threshold_string)
-            header = ('duration', 'threshold', 'name')
-            grid = pd.read_csv(appstr, names=header, sep=",", lineterminator="\n")
-            grid.sort_values(['duration', 'threshold'], inplace=True)
-            Threshold = namedtuple("Threshold", header)
-
-            return [Threshold(**row.to_dict()) for _, row in grid.iterrows()]
+        def date(datestring):
+            m, d, y = datestring.split("/")
+            return np.datetime64("{}-{}-{}".format(y, m, d))
 
         input_format = \
             {"chemical_name": str,  # Atrazine
              "region": str,  # Ohio Valley
              "applications": application_matrix,
-             "thresholds": threshold_matrix,
+             "endpoints": dict,
              "soil_hl": float,  # Soil half life
              "wc_metabolism_hl": float,  # Water column metabolism half life
              "ben_metabolism_hl": float,  # Benthic metabolism half life
@@ -252,31 +230,45 @@ class InputFile(object):
              "hydrolysis_hl": float,  # Hydrolysis half life
              "kd_flag": int,  # 1
              "koc": float,  # 100
-             "sim_date_start": np.datetime64,  # 01/01/1984
-             "sim_date_end": np.datetime64,  # 12/31/2013
-             "output_type": int,  # 2
-             "output_time_avg_conc": int,  # 1
-             "output_avg_days": int,  # 4
-             "output_tox_value": int,  # 4
-             "output_format": int,  # 3
-             "output_time_avg_option": int,  # 2
-             "output_tox_thres_exceed": int,  # 1
-             "workers": int,  # 16
-             "processes": int  # 1
+             "sim_date_start": date,  # 01/01/1984
+             "sim_date_end": date,  # 12/31/2013
              }
 
         # Check if any required input data are missing or extraneous data are provided
-        provided_fields = set(data['inputs'].keys())
+        provided_fields = set(data.keys())
         required_fields = set(input_format.keys())
         unknown_fields = provided_fields - required_fields
         missing_fields = required_fields - provided_fields
         if unknown_fields:
-            sys.exit("Input field(s) \"{}\" not understood".format(", ".join(unknown_fields)))
-        elif missing_fields:
-            sys.exit("Required input field(s) \"{}\" not provided".format(", ".join(missing_fields)))
-        else:
-            input_data = {field: input_format[field](val) for field, val in data['inputs'].items()}
-            self.__dict__.update(input_data)
+            print("Input field(s) \"{}\" not understood".format(", ".join(unknown_fields)))
+
+        assert not missing_fields, "Required input field(s) \"{}\" not provided".format(", ".join(missing_fields))
+
+        input_data = {field: input_format[field](data[field]) for field in input_format.keys()}
+        self.__dict__.update(input_data)
+
+
+    @property
+    def dates(self):
+        return pd.date_range(self.sim_date_start, self.sim_date_end)
+
+    @property
+    def year(self):
+        return self.dates.year
+
+    @property
+    def year_length(self):
+        unique_years, days = np.unique(self.year, return_counts=True)
+        return days
+
+    @property
+    def new_year(self):
+        return [(np.datetime64("{}-01-01".format(year)) - self.sim_date_start).astype(int)
+                for year in self.unique_years]
+
+    @property
+    def n_dates(self):
+        return len(self.dates)
 
 
 class Navigator(object):
@@ -369,7 +361,7 @@ class RecipeMatrices(object):
 
     def burn_reservoir(self, lake, upstream_reaches):
 
-        from parameters import time_of_travel as time_of_travel_params
+        from .parameters import time_of_travel as time_of_travel_params
 
         if lake is not None and upstream_reaches:
 
@@ -395,10 +387,27 @@ class RecipeMatrices(object):
 
     def calculate_exceedances(self, concentration):
         if concentration is not None:
+            categories = [("Human health DWLOC (ug/L)", 'human', (4, 21, 60)),
+                          ("Freshwater Fish (Tox x LOC)", 'fw_fish', (4, 60,)),
+                          ("Freshwater Invertebrate (Tox x LOC)", 'fw_inv', (4, 21,)),
+                          ("Estuarine/Marine Fish (Tox x LOC)", 'em_fish', (4, 21,)),
+                          ("Estuarine/Marine Invertebrate (Tox x LOC)", 'em_inv', (4, 21,)),
+                          ("Aquatic nonvascular plant (Tox x LOC)", 'nonvasc_plant', (4, 21,)),
+                          ("Aquatic vascular plant (Tox x LOC)", 'vasc_plant'), (4, 21,)]
+
+            durations, endpoints, names = [], [], []
+            for label, field, durations in categories:
+                for level, duration in zip(('acute', 'chronic', 'human'), durations):
+                    endpoint = self.i.endpoints(["{}_{}".format(level, field)])
+                    if endpoint:
+                        durations.append(duration)
+                        endpoints.append(endpoint)
+                        names.append(label)
+
             years = self.i.dates.year - self.i.dates.year.min()
-            durations, thresholds, names = zip(*self.i.thresholds)
-            exceed = moving_window(concentration, *map(np.int16, (durations, thresholds, years, self.i.year_length)))
-            return exceed
+            exceed = moving_window(concentration, *map(np.int16, (durations, endpoints, years, self.i.year_length)))
+
+        return exceed
 
     def calculate_contributions(self, scenarios, masses):
         # Sum the total contribution by land cover class and add to running total
@@ -463,7 +472,7 @@ class RecipeMatrices(object):
         return transported_mass, runoff, benthic_conc
 
     def partition_benthic(self, reach, runoff, runoff_mass, erosion_mass):
-        from parameters import soil, stream_channel, benthic
+        from .parameters import soil, stream_channel, benthic
 
         try:
             reach = self.region.flow_file.fetch(reach)
@@ -506,7 +515,7 @@ class RecipeMatrices(object):
 
     def process_recipes(self, recipe_ids):
         for _, recipe_id in enumerate(recipe_ids):
-
+            print(recipe_id)
             # Fetch time series data from all scenarios in recipe
             scenarios, time_series = self.fetch_scenarios(recipe_id)
 
@@ -526,9 +535,12 @@ class RecipeMatrices(object):
                 # Calculate exceedances
                 exceedances = self.calculate_exceedances(total_conc)
 
+                print(total_flow.sum(), total_runoff.sum(), total_mass.sum(), total_conc.sum())
 
                 # Store results in output array
                 self.update_output(recipe_id, benthic_conc, total_flow, total_runoff, total_mass, total_conc)
+
+        return exceedances
 
     def update_output(self, recipe_id, benthic_conc=None, total_flow=None, total_runoff=None, total_mass=None,
                       total_conc=None):
@@ -548,7 +560,7 @@ class RecipeMatrices(object):
             indices = np.int16([i for i, r in enumerate(reaches) if r not in self.region.run_reaches])
             return reaches[indices], times[indices]
 
-        from parameters import time_of_travel
+        from .parameters import time_of_travel
 
         # Fetch all upstream reaches and corresponding travel times
         reaches, times = self.region.nav.upstream_watershed(reach)
@@ -621,13 +633,14 @@ class ScenarioMatrices(object):
         self.array_shape, self.variable_shape, self.start_date, self.n_dates = self.load_key()
 
         # Calculate date offsets
-        self.end_date, self.start_offset, self.end_offset = self.date_offsets()
+        self.end_date = self.start_date + np.timedelta64(self.n_dates, 'D')
+        self.start_offset, self.end_offset = self.date_offsets()
 
         # Initialize input matrices
         self.array_matrix = MemoryMatrix(self.scenarios, len(self.arrays), self.n_dates, self.path,
-                                         self.base + "_arrays_matrix", name="arrays", input_only=True)
+                                         self.base + "_arrays", name="arrays", input_only=True)
         self.variable_matrix = MemoryMatrix(self.scenarios, len(self.variables), path=self.path,
-                                            base=self.base + "_vars_matrix", name="variables", input_only=True)
+                                            base=self.base + "_vars", name="variables", input_only=True)
         if retain:
             self.processed_matrix = MemoryMatrix(self.scenarios, 4, i.dates.size, path=self.path, base=retain,
                                                  name="scenario", overwrite=False)
@@ -641,12 +654,17 @@ class ScenarioMatrices(object):
         self.inspect()
 
     def date_offsets(self):
-        end_date = self.start_date + np.timedelta64(self.n_dates, 'D')
-        assert self.start_date <= self.i.sim_date_start and end_date >= self.i.sim_date_end, \
-            "Simulation dates extend beyond range of dates in scenario matrix"
+        if self.start_date > self.i.sim_date_start:
+            self.i.sim_date_start = self.start_date
+            print("Simulation dates start earlier than the dates in the scenario matrix. Adjusting run dates")
+        if self.end_date < self.i.sim_date_end:
+            self.i.sim_date_end = self.end_date
+            print("Simulation dates end after the dates in scenario matrix. Adjusting run dates")
         start_offset = (self.i.sim_date_start - self.start_date).astype(int)
-        end_offset = (self.i.sim_date_end - end_date).astype(int) + 1
-        return end_date, start_offset, end_offset
+        end_offset = (self.i.sim_date_end - self.end_date).astype(int) + 1
+        if not end_offset:
+            end_offset = self.n_dates + 1
+        return start_offset, end_offset
 
     def extract_scenario(self, scenario_id):
 
@@ -671,7 +689,7 @@ class ScenarioMatrices(object):
 
     def pesticide_applications(self, active_crops, event_dates, plant_factor, rain, covmax):
 
-        from parameters import soil, plant
+        from .parameters import soil, plant
 
         scenario_applications = set(filter(lambda x: x.crop in active_crops, self.i.applications))
         application_mass = np.zeros((2, self.i.n_dates))
@@ -702,7 +720,7 @@ class ScenarioMatrices(object):
 
     def pesticide_transport(self, pesticide_mass_soil, runoff, erosion, leaching, org_carbon, bulk_density, soil_water):
         """ Simulate transport of pesticide through runoff and erosion """
-        from parameters import soil
+        from .parameters import soil
 
         # Initialize output
         runoff_mass = np.zeros(self.i.n_dates)
@@ -741,7 +759,7 @@ class ScenarioMatrices(object):
     def process_scenario(self, scenario_id, leaching, runoff, erosion, soil_water, plant_factor, rain, covmax,
                          org_carbon, bulk_density, event_dates):
 
-        from parameters import crop_groups
+        from .parameters import crop_groups
 
         crop = int(scenario_id.split("cdl")[1])
         all_crops = {crop} | crop_groups.get(crop, set())
@@ -773,6 +791,7 @@ class ScenarioMatrices(object):
                 array_reader = self.array_matrix.reader
                 variable_reader = self.variable_matrix.reader
                 writer = self.processed_matrix.writer
+
             # Extract arrays
             leaching, runoff, erosion, soil_water, plant_factor, rain = \
                 array_reader[n][:, self.start_offset:self.end_offset]
@@ -870,12 +889,12 @@ def impulse_response_function(alpha, beta, length):
 
 @guvectorize(['void(float64[:], int16[:], int16[:], int16[:], int16[:], float64[:])'], '(p),(o),(o),(p),(n)->(o)',
              nopython=True)
-def moving_window(time_series, window_sizes, thresholds, years_since_start, year_sizes, res):
+def moving_window(time_series, window_sizes, endpoints, years_since_start, year_sizes, res):
     # Count the number of times the concentration exceeds the test threshold in each year
     counts = np.zeros((year_sizes.size, window_sizes.size))
     for test in range(window_sizes.size):
         window_size = window_sizes[test]
-        threshold = thresholds[test]
+        threshold = endpoints[test]
         window_sum = np.sum(time_series[:window_size])
         for day in range(window_size, len(time_series)):
             year = years_since_start[day]
@@ -958,7 +977,7 @@ def simultaneous_diffeq(gamma1, gamma2, omega, theta, daily_aq_peak):
 def solute_holding_capacity(depth, surface_area, koc):
     """Calculates Solute Holding capacities and mass transfer between water column and benthic regions"""
 
-    from parameters import benthic, water_column
+    from .parameters import benthic, water_column
 
     # Aqueous volumes in each region
     vol1 = depth * surface_area  # total volume in water column, approximately equal to water volume alone

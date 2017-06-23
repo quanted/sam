@@ -2,7 +2,7 @@ import os
 import re
 import numpy as np
 import pandas as pd
-from functions import MemoryMatrix
+from Tool.functions import MemoryMatrix
 from datetime import date
 
 
@@ -26,9 +26,10 @@ class MetfileMatrix(MemoryMatrix):
                 self.start_offset = (self.start_date - self.file_start_date).days
                 self.end_date = self.file_end_date
                 super(MetfileMatrix, self).__init__(self.metfile_ids, (self.file_end_date - self.start_date).days + 1, 3,
-                                                    path=memmap_path, name="metfile")
+                                                    path=memmap_path, name="metfile", dtype=np.float32)
             out_rows = data.as_matrix()[self.start_offset:, 3:]
             self.update(grid_id, out_rows)
+
 
         convert_date = lambda date: date.strftime('%Y-%m-%d')
         key = np.array([convert_date(self.start_date), convert_date(self.end_date)] + list(self.metfile_ids))
@@ -52,7 +53,7 @@ class MetfileMatrix(MemoryMatrix):
 
 def main():
     out_dir = r"..\bin\Preprocessed\MetTables"
-    input_dir = r"..\bin\Preprocessed\Met1991-2015"
+    input_dir = r"C:\Users\Jhook\Documents\SAM_temp\bin\Preprocessed\Met1991-2015"
     start_date = date(2000, 1, 1)
     MetfileMatrix(out_dir, input_dir, start_date)
 

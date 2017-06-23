@@ -40,12 +40,12 @@ time_of_travel_params = {
 
 # Preprocessed data repositories
 # path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
-path = r"..\bin"
+path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, "bin"))
 path_params = {
     "flow_dir": os.path.join(path, "Preprocessed", "FlowFiles"),
     "map_path": os.path.join(path, "Preprocessed", "InputMaps", "mtb_map1"),  # may need to modify
     "output_path": os.path.join(path, "Results"),  # can modify if desired
-    "input_scenario_path": os.path.join(path, "Preprocessed", "Scenarios", "mark_twain"),
+    "input_scenario_path": os.path.join(path, "Preprocessed", "Scenarios", "mtb"),
     "lakefile_path": os.path.join(path, "Preprocessed", "LakeFiles", "region_{}.csv"),
     "upstream_path": os.path.join(path, "Preprocessed", "Upstream", "upstream_{}.npz"),
 }

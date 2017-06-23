@@ -1,5 +1,8 @@
-from parameters import write_list, paths as p
-from functions import InputFile, Hydroregion, ScenarioMatrices, RecipeMatrices
+from .parameters import write_list, paths as p
+from .functions import InputFile, Hydroregion, ScenarioMatrices, RecipeMatrices
+import os
+import sys
+
 
 # Existential questions:
 # Better inspections: check for (and report on) dates, missing data (scenarios, etc), other failures
@@ -7,7 +10,6 @@ from functions import InputFile, Hydroregion, ScenarioMatrices, RecipeMatrices
 
 
 def pesticide_calculator(input_data):
-
     # Initialize parameters from front end
     inputs = InputFile(input_data)
 
@@ -17,7 +19,7 @@ def pesticide_calculator(input_data):
 
     # Simulate application of pesticide to all input scenarios
     print("Processing scenarios...")
-    scenarios = ScenarioMatrices(inputs, p.input_scenario_path, retain="mtb_" + inputs.chemical_name)
+    scenarios = ScenarioMatrices(inputs, p.input_scenario_path)
 
     # Cascade downstream processing watershed recipes and performing travel time analysis
     for year in inputs.manual_years:
@@ -27,7 +29,6 @@ def pesticide_calculator(input_data):
             recipes.process_recipes(reaches)
             recipes.burn_reservoir(lake, reaches)
 
-        recipes.write_time_series(4867727)
 
 def main(input_data=None):
     if input_data is None:
@@ -42,7 +43,8 @@ if __name__ == "__main__":
     time_it = True
     if time_it:
         import cProfile
-        for chemical in (atrazine, ):
+
+        for chemical in (atrazine,):
             cProfile.run('main({})'.format(chemical))
     else:
         for chemical in (atrazine,):

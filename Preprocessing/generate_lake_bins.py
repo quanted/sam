@@ -3,8 +3,8 @@ import numpy as np
 import os
 import csv
 import pickle
-from Preprocessing.utilities import read_dbf
-from Tool.functions import Navigator
+from .Preprocessing.utilities import read_dbf
+from .Tool.functions import Navigator
 from collections import defaultdict
 
 
