@@ -1,3 +1,5 @@
+*.pyc
+
 # Created by .ignore support plugin (hsz.mobi)
 Preprocessing/__pycache__/
 Tool/__pycache__/
