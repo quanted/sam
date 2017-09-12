@@ -15,23 +15,14 @@ path_params = {
 
     # Points to the output of the scenario_generator.py
     "input_scenario_path": os.path.join(path, "Preprocessed", "Scenarios", "mtb0731"),
-
-    # Points to the output of generate_map.py
     "map_path": os.path.join(path, "Preprocessed", "InputMaps"),
-
     "output_path": os.path.join(path, "Results"),
     "flow_dir": os.path.join(path, "Preprocessed", "FlowFiles"),
     "lakefile_path": os.path.join(path, "Preprocessed", "LakeFiles", "region_{}.csv"),
     "upstream_path": os.path.join(path, "Preprocessed", "Upstream", "upstream_{}.npz"),
 }
 
-mtb_monitoring = {4989415, 4988183, 4988241, 5042380, 4989385, 4989739, 5042400, 5039952, 2508563, 4867529, 5641174,
-                  5641630, 4869843, 4867727}
-
-mtb_gaged = {5640002, 5040010, 5040078, 5640944, 5640210, 5040886, 5640088, 5641176}
-
-smaller_test = {5641032}
-
+from Development.test_reaches import mtb_monitoring
 write_list = mtb_monitoring
 
 """ Parameters below are hardwired model parameters """
@@ -82,6 +73,7 @@ benthic_params = {
     "d_over_dx": 1  # mass transfer coefficient for exchange between benthic and water column (m/s)
     # (can be modified later if data exists)
 }
+
 plant = ParameterSet(plant_params)
 soil = ParameterSet(soil_params)
 paths = ParameterSet(path_params)

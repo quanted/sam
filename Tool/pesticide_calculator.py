@@ -1,12 +1,6 @@
 from Tool.parameters import nhd_regions, write_list, paths as p
 from Tool.functions import InputFile, Hydroregion, Scenarios, Recipes, confine_regions
 
-# To do (JCH):
-# Better inspections: check for (and report on) dates, missing data (scenarios, etc), other failures
-# Remind me - what's the deal with outlets?
-# Crop groups - where?
-# Years (manual years)
-
 
 def pesticide_calculator(input_data):
     # Initialize parameters from front end

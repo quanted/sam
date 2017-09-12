@@ -227,7 +227,6 @@ class Scenario(object):
 @njit
 def initialize_soil(delta_x, increments_1, increments_2,
                     bd_5, fc_5, wp_5, bd_20, fc_20, wp_20):
-    """ Initialize soil properties """
     soil_properties = np.zeros((5, increments_1 + increments_2))
 
     for i in range(increments_1):
@@ -251,7 +250,6 @@ def initialize_soil(delta_x, increments_1, increments_2,
 
 @njit
 def rain_and_snow(precip, temp, sfac):
-    """ Simplified for use with numba"""
     rain_and_melt = np.zeros((2, precip.size))
     snow_accumulation = 0.
     for i in range(precip.size):
@@ -453,11 +451,6 @@ def process_erosion(num_records, slope, manning_n, runoff, rain, cn, usle_klscp,
                 delta = raintype[int(lower) + 1] - raintype[int(lower)]
                 interp = (lower % 1) * delta
                 c = raintype[int(lower)] + interp
-
-                # peak_discharge = temp_variable*(afield/2589988.11 sqmi)*(runoff*39.370079) /(Afield*10.7639104 ft2/m2)*(3600 sec/hr)*(304.8 mm/ft)
-            # = temp_variable*runoff*3600.*304.8*39.370079/2589988.11/10.7639104
-            # 1.54958679 = 3600.*304.8*39.370079/2589988.11/10.7639104
-
 
             peak_discharge = 10. ** (c[0] + c[1] * np.log10(t_conc) + c[2] * (np.log10(t_conc)) ** 2)
             qp = 1.54958679 * runoff[i] * peak_discharge
