@@ -7,6 +7,35 @@ class ParameterSet(object):
         self.__dict__.update(entries)
 
 
+""" These parameters can be adjusted during test runs """
+
+# Preprocessed data repositories
+path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, "bin"))
+path_params = {
+
+    # Points to the output of the scenario_generator.py
+    "input_scenario_path": os.path.join(path, "Preprocessed", "Scenarios", "mtb0731"),
+
+    # Points to the output of generate_map.py
+    "map_path": os.path.join(path, "Preprocessed", "InputMaps"),
+
+    "output_path": os.path.join(path, "Results"),
+    "flow_dir": os.path.join(path, "Preprocessed", "FlowFiles"),
+    "lakefile_path": os.path.join(path, "Preprocessed", "LakeFiles", "region_{}.csv"),
+    "upstream_path": os.path.join(path, "Preprocessed", "Upstream", "upstream_{}.npz"),
+}
+
+mtb_monitoring = {4989415, 4988183, 4988241, 5042380, 4989385, 4989739, 5042400, 5039952, 2508563, 4867529, 5641174,
+                  5641630, 4869843, 4867727}
+
+mtb_gaged = {5640002, 5040010, 5040078, 5640944, 5640210, 5040886, 5640088, 5641176}
+
+smaller_test = {5641032}
+
+write_list = mtb_monitoring
+
+""" Parameters below are hardwired model parameters """
+
 # Parameters related directly to pesticide degradation
 plant_params = {
     "foliar_degradation": 0.0,  # per day
@@ -25,36 +54,11 @@ soil_params = {
     "delt": 86400.  # seconds per day, time interval
 }
 
-# Stream channel geometry
-stream_channel_params = {
-    "a": 4.28,  # Stream channel width is computed from the power regression function w = a(q/v)^b
-    "b": 0.55
-}
-
 # Time of Travel defaults
 time_of_travel_params = {
     "gamma_convolve": False,
     "convolve_runoff": False,
     "minimum_residence_time": 1.5  # Minimum residence time in days for a reservoir to be treated as a reservoir
-}
-
-# Preprocessed data repositories
-# path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
-path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, "bin"))
-path_params = {
-    "flow_dir": os.path.join(path, "Preprocessed", "FlowFiles"),
-    "map_path": os.path.join(path, "Preprocessed", "InputMaps", "mtb_map1"),  # may need to modify
-    "output_path": os.path.join(path, "Results"),  # can modify if desired
-    "input_scenario_path": os.path.join(path, "Preprocessed", "Scenarios", "mtb"),
-    "lakefile_path": os.path.join(path, "Preprocessed", "LakeFiles", "region_{}.csv"),
-    "upstream_path": os.path.join(path, "Preprocessed", "Upstream", "upstream_{}.npz"),
-}
-
-# To be added to input file
-to_be_added_params = {
-    # Hardwired stuff to get added to the front end
-    "manual_years": [2010],  # JCH - replace,
-    "process_benthic": False
 }
 
 # Water Column Parameters - USEPA OPP defaults
@@ -80,7 +84,6 @@ benthic_params = {
 }
 plant = ParameterSet(plant_params)
 soil = ParameterSet(soil_params)
-stream_channel = ParameterSet(stream_channel_params)
 paths = ParameterSet(path_params)
 time_of_travel = ParameterSet(time_of_travel_params)
 water_column = ParameterSet(water_column_params)
@@ -108,12 +111,3 @@ crop_groups = {14: {40, 10},
                176: {110},
                190: {180},
                195: {180}}
-
-mtb_monitoring = {4989415, 4988183, 4988241, 5042380, 4989385, 4989739, 5042400, 5039952, 2508563, 4867529, 5641174,
-                  5641630, 4869843, 4867727}
-
-mtb_gaged = {5640002, 5040010, 5040078, 5640944, 5640210, 5040886, 5640088, 5641176}
-
-smaller_test = {5641032}
-
-write_list = mtb_monitoring | mtb_gaged | smaller_test

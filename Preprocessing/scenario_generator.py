@@ -125,7 +125,7 @@ class OutputMatrix(object):
             # f.write(",".join(map(str, list(self.array_matrix.shape) + list(self.variable_matrix.shape))))
 
     def populate(self):
-        for row in self.in_matrix.iterate_rows(report=1000):
+        for i, row in enumerate(self.in_matrix.iterate_rows(report=1000)):
             s = Scenario(row, self.met)
             self.array_matrix.update(s.scenario, s.arrays)
             self.variable_matrix.update(s.scenario, s.vars)
@@ -469,7 +469,7 @@ def process_erosion(num_records, slope, manning_n, runoff, rain, cn, usle_klscp,
 def main():
     input_file = r"..\bin\Preprocessed\ScenarioMatrices\MTB_scenarios_030717_2.txt"
     metfile_memmap = r"..\bin\Preprocessed\MetTables\metfile"
-    output_memmap = r"..\bin\Preprocessed\Scenarios\mark_twain"
+    output_memmap = r"..\bin\Preprocessed\Scenarios\mtb0731"
 
     # Initialize input met matrix
     met = MetfileMatrix(metfile_memmap)
@@ -483,7 +483,6 @@ def main():
 
 if False:
     import cProfile
-
     cProfile.run('main()')
 else:
     main()
