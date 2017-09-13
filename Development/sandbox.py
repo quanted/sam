@@ -1,5 +1,7 @@
-a = ('acute', 'chronic', 'human')
+import numpy as np
 
-b = [1, 2]
+from numba import guvectorize, njit
 
-print(b[:3])
+
+a = np.int32([0, 0, 0])
+print(a, a.any())

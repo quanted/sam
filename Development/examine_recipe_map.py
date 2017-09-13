@@ -2,7 +2,7 @@ import pickle
 import numpy as np
 import os
 
-from functions import MemoryMatrix
+from Tool.functions import MemoryMatrix
 
 
 class RecipeMap(MemoryMatrix):
@@ -15,10 +15,6 @@ class RecipeMap(MemoryMatrix):
 
         super(RecipeMap, self).__init__(self.key, self.n_cols, 2,
                                         existing=self.memmap_file, dtype=np.int32)
-
-
-# To do today: reform MemoryMatrix.  More universal key?  More than 3 dimensions?
-
 
 in_path = r"S:\bin\Preprocessed\InputMaps\mtb_map1"
 rmap = RecipeMap(in_path)

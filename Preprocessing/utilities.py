@@ -1,78 +1,10 @@
 import os
-import numpy as np
+import ogr
 from collections import OrderedDict, defaultdict
 
 
-class Navigator(object):
-    def __init__(self, region, paths_dir=r"T:\TripTools\WatershedTools\Paths\Collapsed", form="upstream_{}.npz"):
-        self.region = region
-        data = np.load(os.path.join(paths_dir, form.format(self.region)))
-        self.paths, self.path_map, self.start_cols, self.alias_to_comid = \
-            data['paths'], data['path_map'], data['start_cols'], data['conversion_array']
-        self.n_reaches = self.alias_to_comid.size
-        self.comid_to_alias = dict(zip(self.alias_to_comid, np.arange(self.n_reaches)))
-        self.reaches = np.sort(self.alias_to_comid)
-        self.aliases = np.arange(self.reaches.size)
-        self.last_outlet = None
-
-    def all_upstream(self, reach, mode='comid'):
-        reach = self._format_input(reach, mode)
-        if reach:
-            start_row, end_row, col = map(int, self.path_map[reach])
-            start_col = list(self.paths[start_row]).index(reach)
-            upstream_reaches = list(self.paths[start_row:end_row])
-            upstream_reaches.append(self.paths[start_row][start_col:])
-            output = np.concatenate(upstream_reaches)
-            return self._format_output(output, mode)
-        else:
-            return np.array([])
-
-    def all_downstream(self, reach, mode='comid'):
-        if not self.last_outlet:
-            a = (self.start_cols == 0)
-            self.last_outlet = np.where(a)[0][a.cumsum() - 1]
-        reach = self._format_input(reach, mode)
-        start_row, _, _ = map(int, self.path_map[reach])
-        last_outlet = self.last_outlet[start_row]
-        start_cols = self.start_cols[last_outlet:start_row+1]
-        active_paths = np.where(start_cols == np.minimum.accumulate(start_cols[::-1])[::-1])[0] + last_outlet
-        output = np.zeros((start_cols[-1] + len(self.paths[start_row])) * 1.5, dtype=np.int32)
-        for i, start, end in zip(active_paths, self.start_cols[active_paths], self.start_cols[active_paths][1:]):
-            output[start:end] = self.paths[i][:end - start]
-        return self._format_output(output[output > 0], mode)
-
-    def upstream_paths(self, reach, mode='comid'):
-        reach = self._format_input(reach, mode)
-        start_row, end_row, _ = map(int, self.path_map[reach])
-        path = np.zeros(max(map(lambda x: self.start_cols[x] + self.paths[x].size, range(start_row, end_row))), dtype=np.int32)
-        baseline = self.start_cols[start_row]
-        for i in range(start_row, end_row - 1):
-            stub = self.paths[i]
-            start_col = self.start_cols[i] - baseline
-            path[start_col:] = 0
-            path[start_col:start_col + stub.size] = stub
-            output = path[path != 0]
-            yield self._format_output(output, mode)
-
-    def _format_input(self, reach_id, mode):
-        return reach_id if mode == 'alias' else self.comid_to_alias.get(reach_id)
-
-    def _format_output(self, output, mode):
-        return output if mode == 'alias' else self.alias_to_comid[output]
-
-    def __repr__(self):
-        return "NHD Region {} Navigator".format(self.region)
-
-def gis_it(comids, field="COMID", lookup_dict=None):
-
-    if lookup_dict:
-        comids = filter(None, map(lookup_dict.get, comids))
-
-    print("\"{}\" = ".format(field) + " OR \"{}\" = ".format(field).join(map(str, comids)))
-
 # Reads the contents of a dbf table
 def read_dbf(dbf_file, out_fields=None):
-    import ogr
 
     # Initialize file
     driver = ogr.GetDriverByName("ESRI Shapefile")
@@ -101,14 +33,6 @@ def read_dbf(dbf_file, out_fields=None):
     # noinspection PyUnusedLocal
     data_source = None
     return table
-
-
-def gis_it(comids, field="COMID", lookup_dict=None):
-
-    if lookup_dict:
-        comids = filter(None, map(lookup_dict.get, comids))
-
-    print("\"{}\" = ".format(field) + " OR \"{}\" = ".format(field).join(map(str, comids)))
 
 # Assembles a dictionary of NHD Plus directory structure indexed by region
 def get_nhd(nhd_dir=r"T:\NationalData\NHDPlusV2", region_filter='all'):

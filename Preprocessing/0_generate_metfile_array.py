@@ -53,8 +53,8 @@ class MetfileMatrix(MemoryMatrix):
 
 def main():
     out_dir = r"..\bin\Preprocessed\MetTables"
-    input_dir = r"C:\Users\Jhook\Documents\SAM_temp\bin\Preprocessed\Met1991-2015"
-    start_date = date(2000, 1, 1)
+    input_dir = r"T:\utool\qed_ubertool\ubertool_ecorest\ubertool\ubertool\sam\bin\Preprocessed\Met1991-2015"
+    start_date = date(1991, 1, 1)
     MetfileMatrix(out_dir, input_dir, start_date)
 
 

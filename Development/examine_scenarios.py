@@ -1,54 +1,102 @@
-from functions import MemoryMatrix
+import os
 import numpy as np
+from Tool.functions import MemoryMatrix
 
-class ScenarioMatrix(MemoryMatrix):
-    def __init__(self, memmap_path):
 
-        self.memmap_path = memmap_path + "_matrix.dat"
-        self.keyfile_path = memmap_path + "_key.npy"
+class ScenarioMatrices(object):
+    def __init__(self, input_memmap_path):
+        self.path, self.base = os.path.split(input_memmap_path)
+        self.keyfile_path = input_memmap_path + "_key.txt"
 
-        # Set row/column offsets
-        self.n_cols, self.n_dates, start_date, self.arrays, self.variables, self.scenarios = self.load_key()
-        self.n_arrays, self.n_vars = len(self.arrays), len(self.variables)
-        self.array_block = self.n_dates * self.n_arrays
-        self.variable_block = self.array_block + self.n_vars
+        # Load key file for interpreting input matrices
+        self.arrays, self.variables, self.scenarios, \
+        self.array_shape, self.variable_shape, self.start_date, self.n_dates = self.load_key()
 
-        # Initialize memory matrix
-        super(ScenarioMatrix, self).__init__(self.scenarios, self.n_cols, existing=self.memmap_path)
+        # Initialize input matrices
+        self.array_matrix = MemoryMatrix(self.scenarios, len(self.arrays), self.n_dates, self.path,
+                                         self.base + "_arrays", name="arrays", input_only=True)
+        self.variable_matrix = MemoryMatrix(self.scenarios, len(self.variables), path=self.path,
+                                            base=self.base + "_vars", name="variables", input_only=True)
 
     def load_key(self):
-        try:
-            (n_rows, n_cols, n_dates, start_date), arrays, variables, scenarios = np.load(self.keyfile_path)
-            return n_cols, n_dates, start_date, arrays, variables, scenarios
-        except ValueError:
-            exit("Invalid key file {}".format(self.keyfile_path))
+        with open(self.keyfile_path) as f:
+            arrays, variables, scenarios = (next(f).strip().split(",") for _ in range(3))
+            start_date = np.datetime64(next(f).strip())
+            shape = np.array([int(val) for val in next(f).strip().split(",")])
+        return arrays, variables, np.array(scenarios), shape[:3], shape[3:], start_date, int(shape[2])
 
-    def extract_scenario(self, scenario_id, reader=None):
-        if reader is None:
-            data = self.fetch(scenario_id)
-        else:
-            location = self.lookup[scenario_id]
-            data = reader[location]
-        arrays = data[:self.array_block].reshape((self.n_arrays, self.n_dates))[:, self.start_offset:self.end_offset]
-        variables = data[self.array_block: self.variable_block]
-        scenario = dict(zip(self.arrays, arrays))
-        scenario.update(dict(zip(self.variables, variables)))
+    def process_scenarios(self, chunk=5000, progress_interval=500):
 
-        scenario['events'] = {'plant': scenario['plant_beg'], 'emergence': scenario['emerg_beg'],
-                              'maturity': scenario['mat_beg'], 'harvest': scenario['harvest_beg']}
-        return [scenario[key] for key in
-                ("events", "runoff", "erosion", "leaching", "org_carbon", "bulk_density", "soil_water",
-                 "plant_factor", "rain", "covmax")]
+        from .parameters import crop_groups
 
-        super(ScenarioMatrix, self).__init__(index, y_size, z_size=None, name="m4b", existing=path, dtype=np.float32)
+        # Initialize readers and writers
+        array_reader, variable_reader = self.array_matrix.reader, self.variable_matrix.reader
+        writer = self.processed_matrix.writer
+
+        # Iterate scenarios
+        for n, scenario_id in enumerate(self.scenarios):
+
+            # Report progress and reset readers/writers at intervals
+            if not (n + 1) % progress_interval:
+                print("{}/{}".format(n + 1, len(self.scenarios)))
+            if not n % chunk:
+                if not n:
+                    offset = 0
+                else:
+                    del array_reader, variable_reader, writer
+                    array_reader, variable_reader = self.array_matrix.reader, self.variable_matrix.reader
+                    writer = self.processed_matrix.writer
+
+            # Get crop ID of scenario and find all associated crops in group
+            # JCH - is this still necessary given input file?
+            crop = scenario_id.split("cdl")[1]
+            all_crops = {crop} | set(map(str, crop_groups.get(crop, [])))
+            active_crops = self.i.crops & all_crops
+
+            # Extract arrays
+            leaching, runoff, erosion, soil_water, plant_factor, rain = \
+                array_reader[n][:, self.start_offset:self.end_offset]
+
+            # Write runoff and erosion
+            result = array_reader[n][1:3, self.start_offset:self.end_offset]
+            # writer[n, :2] = result
+
+            if any(active_crops):
+
+                covmax, org_carbon, bulk_density, plant_beg, harvest_beg, emerg_beg, bloom_beg, mat_beg = \
+                    variable_reader[n]
+
+                events = {'plant': plant_beg, 'emergence': emerg_beg, 'maturity': mat_beg, 'harvest': harvest_beg}
+
+                # Compute pesticide application that winds up in soil
+                pesticide_mass_soil = \
+                    mf.pesticide_applications(self.i.n_dates, self.i.applications, self.i.new_year,
+                                              active_crops, events, plant_factor, rain, covmax)
+
+                # Determine the loading of pesticide into runoff and erosion
+                runoff_mass, erosion_mass = \
+                    mf.pesticide_transport(self.i.n_dates, pesticide_mass_soil, runoff, erosion, leaching, org_carbon,
+                                           bulk_density, soil_water, self.i.koc, self.i.kd_flag, self.i.deg_aqueous)
+
+                print(pesticide_mass_soil.sum(), runoff_mass.sum(), erosion_mass.sum())
+                writer[n, 2:] = runoff_mass, erosion_mass
+            else:
+                del leaching, runoff, erosion, soil_water, plant_factor, rain
+
+        del array_reader, variable_reader
+
+        if __name__ == "__arrays.sum(), list(zip(sm.variables, vars)))main__":
+            from pesticide_calculator import main
+
+            main()
+
 
 def main():
-    scenario_path = r"..\bin\Preprocessed\Scenarios\m4e"
-    scenario_matrix = ScenarioMatrix(scenario_path)
-    for scenario in scenario_matrix.index:
-        print(scenario)
-        print(np.nan_to_num(scenario_matrix.fetch(scenario)).max())
-        input()
-
-
+    input_path = r"..\bin\Preprocessed\Scenarios\mtb0731"
+    sm = ScenarioMatrices(input_path)
+    for i, scenario in enumerate(sm.scenarios):
+        if not i % 100:
+            arrays = sm.array_matrix.fetch(scenario)
+            vars = sm.variable_matrix.fetch(scenario)
+            print(i, scenario, arrays.sum(), list(zip(sm.variables, vars)))
 main()
