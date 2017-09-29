@@ -1,6 +1,6 @@
 import datetime
 import os
-
+from ..Development.test_reaches import mtb_monitoring
 
 class ParameterSet(object):
     def __init__(self, entries):
@@ -22,7 +22,6 @@ path_params = {
     "upstream_path": os.path.join(path, "Preprocessed", "Upstream", "upstream_{}.npz"),
 }
 
-from Development.test_reaches import mtb_monitoring
 write_list = mtb_monitoring
 
 """ Parameters below are hardwired model parameters """

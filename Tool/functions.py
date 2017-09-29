@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 import math
 
 import numpy as np
@@ -654,6 +655,10 @@ class Scenarios(object):
         # Initialize readers and writers
         # Reminder: array_matrix.shape, processed_matrix.shape = (scenario, variable, date)
         array_reader, variable_reader = self.array_matrix.reader, self.variable_matrix.reader
+        logging.info("array_reader")
+        logging.info(array_reader)
+        logging.info("variable_reader")
+        logging.info(variable_reader)
         processed_writer = self.processed_matrix.writer
 
         # Iterate scenarios
@@ -686,7 +691,8 @@ class Scenarios(object):
             if active_crops.any():
 
                 # Read non-sequential variables from scenario and process
-                covmax, org_carbon, bulk_density, *plant_dates = variable_reader[n]
+                #covmax, org_carbon, bulk_density, *plant_dates = variable_reader[n]
+                covmax, org_carbon, bulk_density, plant_dates = variable_reader[n]
                 kd = self.i.koc * org_carbon if self.i.kd_flag else self.koc
 
                 # Assert that all data is the proper shape for use in the functions
@@ -888,7 +894,7 @@ def pesticide_to_water(pesticide_mass_soil, runoff, erosion, leaching, bulk_dens
 
 
 if __name__ == "__main__":
-    from Tool.pesticide_calculator import main
+    from .pesticide_calculator import main
     import cProfile
 
     cProfile.run('main()')
