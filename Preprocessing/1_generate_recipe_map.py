@@ -1,9 +1,7 @@
 import os
-import re
 import numpy as np
 import pandas as pd
 from collections import defaultdict
-import pickle
 
 
 def identify_local(recipe_path):
@@ -27,6 +25,7 @@ def max_scenarios(local_sets):
     with open(biggest_file) as f:
         n_lines = len(f.readlines())
     return n_lines
+
 
 def make_table(local_sets, outfile, scenario_matrix, n_scenarios):
     # Read scenario matrix keyfile so that scenario indices match up between matrix and map

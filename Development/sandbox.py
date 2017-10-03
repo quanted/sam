@@ -1,5 +1,12 @@
-a = ('acute', 'chronic', 'human')
+class Tester(dict):
+    def __init__(self, items):
+        super(Tester, self).__init__()
 
-b = [1, 2]
 
-print(b[:3])
+a = dict(zip(('a', 'b', 'c'), range(1, 4)))
+
+print(a)
+
+b = Tester(a)
+
+print(b)
