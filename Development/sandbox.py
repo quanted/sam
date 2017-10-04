@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from numba import guvectorize
 import numpy as np
 
@@ -25,3 +26,12 @@ areas = np.float32(np.random.randint(0, 10, 20))
 
 test_func_1(dummy, areas)
 test_func_2(dummy, areas)
+=======
+import numpy as np
+
+from numba import guvectorize, njit
+
+
+a = np.int32([0, 0, 0])
+print(a, a.any())
+>>>>>>> f875114823040b0aa986ac6a2321eb421d6202fc
