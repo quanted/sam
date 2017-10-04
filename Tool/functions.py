@@ -419,7 +419,7 @@ class Recipes(object):
     def update_exceedances(self, recipe_id, concentration):
         durations, endpoints = self.i.endpoints[["duration", "endpoint"]].as_matrix().T
         years = self.i.year - self.i.year[0]
-        exceed = moving_window(concentration, *map(np.int16, (durations, endpoints, years, self.i.year_length)))
+        exceed = exceedance_probability(concentration, *map(np.int16, (durations, endpoints, years)))
         self.exceedances.update(recipe_id, exceed)
 
     def update_output(self, recipe_id, total_flow=None, total_runoff=None, total_mass=None, total_conc=None,
@@ -540,7 +540,6 @@ class Scenarios(object):
         self.arrays, self.variables, self.scenarios, self.array_shape, self.variable_shape, \
         self.start_date, self.n_dates = self.load_key()
 
-
         # Calculate date offsets
         self.end_date = self.start_date + np.timedelta64(self.n_dates, 'D')
         self.start_offset, self.end_offset = self.date_offsets()
@@ -550,6 +549,8 @@ class Scenarios(object):
                                          self.base + "_arrays", name="arrays", input_only=True)
         self.variable_matrix = MemoryMatrix(self.scenarios, len(self.variables), path=self.path,
                                             base=self.base + "_vars", name="variables", input_only=True)
+
+        # Initialize empty matrix for procesed scenarios
         if retain is not None:
             self.processed_matrix = MemoryMatrix(self.scenarios, 4, i.dates.size, path=self.path, base=retain,
                                                  name="scenario", overwrite=False)
@@ -608,31 +609,30 @@ class Scenarios(object):
             all_crops = {crop} | set(map(str, crop_groups.get(crop, [])))
             active_crops = np.int32(sorted(self.i.crops & all_crops))
 
-            # Extract arrays
-            leaching, runoff, erosion, soil_water, plant_factor, rain = \
-                array_reader[n][:, self.start_offset:self.end_offset]
-
-            # Write runoff and erosion
-            processed_writer[n, :2] = array_reader[n][1:3, self.start_offset:self.end_offset]
-
             # If the scenario has pesticide applied, simulate application and transport
             if active_crops.any():
 
+                # Extract arrays
+                leaching, runoff, erosion, soil_water, plant_factor, rain = \
+                    array_reader[n][:, self.start_offset:self.end_offset]
+
                 # Read non-sequential variables from scenario and process
                 covmax, org_carbon, bulk_density, *plant_dates = variable_reader[n]
+
+                # Set kd depending on settings
                 kd = self.i.koc * org_carbon if self.i.kd_flag else self.koc
 
                 # Assert that all data is the proper shape for use in the functions
                 assert len(plant_dates) == 5, "Looking for 5 planting dates, found {}".format(len(plant_dates))
-                assert self.i.applications_numeric.shape[1] == 11, "Invalid application matrix, should have 11 columns"
+                assert self.i.applications.shape[1] == 11, "Invalid application matrix, should have 11 columns"
 
                 # Calculate the daily input of pesticide to the soil and plant canopy
                 application_mass = \
-                    pesticide_to_field(self.i.applications_numeric, self.i.new_year, active_crops, plant_dates, rain)
+                    pesticide_to_field(self.i.applciations, self.i.new_year, active_crops, plant_dates, rain)
 
                 # Calculate the daily mass of pesticide in the soil
-                pesticide_mass_soil = pesticide_to_soil(application_mass, rain, plant_factor, soil.distrib_2cm,
-                                                        plant.foliar_degradation, plant.washoff_coeff, covmax)
+                pesticide_mass_soil = pesticide_to_soil(application_mass, rain, plant_factor, soil.cm_2,
+                                                        plant.deg_foliar, plant.washoff_coeff, covmax)
 
                 # Determine the loading of pesticide into runoff and eroded sediment
                 runoff_mass, erosion_mass = \
@@ -640,10 +640,11 @@ class Scenarios(object):
                                        self.i.deg_aqueous, soil.runoff_effic, soil.delta_x, soil.erosion_effic,
                                        soil.soil_depth)
 
-                # Write runoff mass and erosion mass to processed matrix
-                processed_writer[n, 2:] = runoff_mass, erosion_mass
+                # Write runoff, erosion, runoff mass and erosion mass to processed matrix
+                processed_writer[n] = runoff, erosion, runoff_mass, erosion_mass
             else:
-                del leaching, runoff, erosion, soil_water, plant_factor, rain
+                # Write runoff and erosion
+                processed_writer[n, :2] = array_reader[n][1:3, self.start_offset:self.end_offset]
 
         del array_reader, variable_reader
 
@@ -688,6 +689,24 @@ def confine_regions(nhd_regions, map_path, write_list):
         return nhd_regions
 
 
+@guvectorize(['void(float64[:], int16[:], int16[:], int16[:], float64[:])'], '(p),(o),(o),(p)->(o)')
+def exceedance_probability(time_series, window_sizes, endpoints, years_since_start, res):
+    # Count the number of times the concentration exceeds the test threshold in each year
+    n_years = years_since_start.max()
+    for test_number in range(window_sizes.size):
+        window_size = window_sizes[test_number]
+        threshold = endpoints[test_number]
+        window_sum = np.sum(time_series[:window_size])
+        exceedances = np.zeros(n_years)
+        for day in range(window_size, len(time_series)):
+            year = years_since_start[day]
+            window_sum += time_series[day] - time_series[day - window_size]
+            avg = window_sum / window_size
+            if avg > threshold:
+                exceedances[year] = 1
+        res[test_number] = exceedances.sum() / n_years
+
+
 def impulse_response_function(alpha, beta, length):
     def gamma_distribution(t, a, b):
         a, b = map(float, (a, b))
@@ -695,30 +714,6 @@ def impulse_response_function(alpha, beta, length):
         return ((t ** (a - 1)) / (((tau / a) ** a) * math.gamma(a))) * math.exp(-(a / tau) * t)
 
     return np.array([gamma_distribution(i, alpha, beta) for i in range(length)])
-
-
-@guvectorize(['void(float64[:], int16[:], int16[:], int16[:], int16[:], float64[:])'], '(p),(o),(o),(p),(n)->(o)',
-             nopython=True)
-def moving_window(time_series, window_sizes, endpoints, years_since_start, year_sizes, res):
-    # Count the number of times the concentration exceeds the test threshold in each year
-    counts = np.zeros((year_sizes.size, window_sizes.size))
-    for test_number in range(window_sizes.size):
-        window_size = window_sizes[test_number]
-        threshold = endpoints[test_number]
-        window_sum = np.sum(time_series[:window_size])
-        for day in range(window_size, len(time_series)):
-            year = years_since_start[day]
-            window_sum += time_series[day] - time_series[day - window_size]
-            avg = window_sum / window_size
-            if avg > threshold:
-                counts[year, test_number] += 1
-
-    # Average the number of yearly exceedances for each test
-    for test_number in range(window_sizes.size):
-        exceedance = 0
-        for year in range(year_sizes.size):
-            exceedance += counts[year, test_number] / year_sizes[year]
-        res[test_number] = exceedance / year_sizes.size
 
 
 @njit
@@ -813,6 +808,9 @@ def pesticide_to_water(pesticide_mass_soil, runoff, erosion, leaching, bulk_dens
 
 
 if __name__ == "__main__":
+    import cProfile
     from Tool.pesticide_calculator import main
-
-    main()
+    if True:
+        cProfile.run('main()')
+    else:
+        main()

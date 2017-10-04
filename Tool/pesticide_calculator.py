@@ -3,12 +3,13 @@ from Tool.functions import InputFile, Hydroregion, Scenarios, Recipes, confine_r
 
 
 def pesticide_calculator(input_data):
+
     # Initialize parameters from front end
     inputs = InputFile(input_data)
 
     # Simulate application of pesticide to all input scenarios
     print("Processing scenarios...")
-    scenarios = Scenarios(inputs, p.input_scenario_path, retain='cinq')  # retain="yesquatre"
+    scenarios = Scenarios(inputs, p.input_scenario_path, retain="cinq")  # retain="cinq"
 
     # Loop through all NHD regions included in selected runs
     for region in confine_regions(nhd_regions, p.map_path, write_list):
