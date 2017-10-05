@@ -173,10 +173,8 @@ class Sam(UberModel, SamInputs, SamOutputs):
         self.pd_obj = pd_obj
         self.pd_obj_exp = pd_obj_exp
         self.pd_obj_out = None
-
         self.input_dict = InputDict(self.pd_obj)
 
     def execute_model(self):
         from .Tool.pesticide_calculator import pesticide_calculator
-
         outputs = pesticide_calculator(self.input_dict)

@@ -1,5 +1,5 @@
 import os
-
+from ..Development.test_reaches import mtb_monitoring
 
 class ParameterSet(object):
     def __init__(self, entries):
@@ -20,8 +20,6 @@ path_params = {
     "lakefile_path": os.path.join(path, "Preprocessed", "LakeFiles"),
     "upstream_path": os.path.join(path, "Preprocessed", "Navigators"),
 }
-
-from Development.test_reaches import mtb_monitoring
 
 write_list = mtb_monitoring
 

@@ -1,5 +1,5 @@
-from Tool.parameters import nhd_regions, write_list, paths as p
-from Tool.functions import InputFile, Hydroregion, Scenarios, Recipes, confine_regions
+from .parameters import nhd_regions, write_list, paths as p
+from .functions import InputFile, Hydroregion, Scenarios, Recipes, confine_regions
 
 
 def pesticide_calculator(input_data):
@@ -40,10 +40,10 @@ def pesticide_calculator(input_data):
 
 def main(input_data=None):
     if input_data is None:
-        from Tool.chemicals import atrazine as input_data
+        from .chemicals import atrazine as input_data
     pesticide_calculator(input_data)
 
 
 if __name__ == "__main__":
-    from Tool.chemicals import atrazine
+    from .chemicals import atrazine
     main(atrazine)

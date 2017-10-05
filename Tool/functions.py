@@ -71,7 +71,7 @@ class MemoryMatrix(object):
         out_array = array[indices] if columns is None else array[np.ix_(indices, columns)]
         del array
 
-        return out_array if not return_index else out_array, index
+        return out_array, index if return_index else out_array
 
     def update(self, key, value, aliased=True):
         array = self.writer
