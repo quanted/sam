@@ -26,7 +26,7 @@ class MemoryMatrix(object):
         overwrite = False if input_only else overwrite
 
         # Load from saved file if one is specified, else generate
-        default_path = r"C:\Users\Trip Hook\Desktop"  # mkdtemp()
+        default_path = mkdtemp()
         path = default_path if path is None else path
         if not os.path.exists(path):
             os.makedirs(path)
@@ -100,27 +100,27 @@ class MemoryMatrix(object):
         return np.memmap(self.path, dtype=self.dtype, mode=mode, shape=self.shape)
 
 
-class FlowMatrix(MemoryMatrix):
-    """ Matrix containing streamflow in m3/d and surface area in m2 for each reach segment """
-
-    def __init__(self, region, file_path):
+class HydroTable(pd.DataFrame):
+    def __init__(self, region, path):
+        super().__init__()
         self.region = region
+        self.path = path
+        self.table_path = os.path.join(path, "region_{}.npz".format(region))
 
-        # Load key
-        self.key_file = os.path.join(file_path, "region_{}_key.npy".format(self.region))
-        self.reaches = np.load(self.key_file, mmap_mode='r')
+        data, header = self.read_table()
+        super(HydroTable, self).__init__(data=data, columns=header)
 
-        # Initialize matrix
-        super(FlowMatrix, self).__init__(self.reaches, 2, 12, name="region_{}".format(self.region),
-                                         path=file_path, input_only=True)
+        index_col = 'wb_comid' if 'wb_comid' in self.columns else 'comid'
+        self.set_index(index_col, inplace=True)
+        self.index = np.int32(self.index)
 
-    def fetch(self, reach_id, data="flow", verbose=False):
-        """ Pull flow or surface area data for the reach, then extend to match dates (select monthly values) """
-        assert data in ("flow", "surface area"), "Invalid request for {}: must be 'flow' or 'surface area'".format(data)
-        index = 0 if data == "flow" else 1
-        record = super(FlowMatrix, self).fetch(reach_id, verbose)
-        if record is not None:
-            return record[index]
+    def read_table(self):
+        assert os.path.isfile(self.table_path), "Table not found for region {} in {}".format(self.region, self.path)
+        data = np.load(self.table_path)
+        return data['table'], data['key']
+
+    def flows(self, reach, month_index):
+        return self.loc[reach].as_matrix()[month_index]
 
 
 class Hydroregion(object):
@@ -132,21 +132,27 @@ class Hydroregion(object):
         self.id = region
 
         # Read hydrological input files
-        self.flow_file = FlowMatrix(self.id, flowfile_dir)
+        self.flow_file = HydroTable(self.id, flowfile_dir)
+        self.lake_table = HydroTable(self.id, lakefile_dir)
         self.nav = Navigator(self.id, upstream_dir)
-        self.lake_table = pd.read_csv(lakefile_dir.format(self.id), index_col="LakeID")
-        self.recipe_map = RecipeMap(map_path, self.id)
+        self.recipe_map = RecipeMap(self.id, map_path)
 
         # Confine to available reaches and assess what's missing
         self.active_reaches = self.confine()
         self.run_reaches = set()
 
     def cascade(self):
-        confined_lake_table = self.lake_table[self.lake_table.OutletID.isin(self.active_reaches)]
+        # Identify all outlets (and therefore, reservoirs) that exist in the current run scope
+        confined_outlets = self.lake_table.outlet_comid.isin(self.active_reaches)
+
+        # Confine lake table to these outlets and sort by number of upstream reservoirs
+        confined_lake_table = self.lake_table[confined_outlets].sort_values('n_upstream')
+
+        # Loop through reservoirs in a downstream direction and process all upstream reaches
         for i, lake in confined_lake_table.iterrows():
-            upstream_reaches, warning = self.nav.upstream_watershed(lake.OutletID, mode='reach', return_times=False)
+            upstream_reaches, warning = self.nav.upstream_watershed(lake.outlet_comid, mode='reach', return_times=False)
             upstream_reaches = set(upstream_reaches)
-            reaches = upstream_reaches & self.active_reaches - {lake.OutletID}
+            reaches = upstream_reaches & self.active_reaches - {lake.outlet_comid}
             yield reaches - self.run_reaches, lake
             self.run_reaches |= reaches
         remaining_reaches = self.active_reaches - self.run_reaches
@@ -183,30 +189,16 @@ class ImpulseResponseMatrix(MemoryMatrix):
 class InputFile(object):
     """ User-specified parameters and parameters derived from them """
 
-    def __init__(self, input_data):
+    def __init__(self, input_dict):
+        from .parameters import time_of_travel, crop_groups
 
-        from .parameters import time_of_travel
-
-        self.format_inputs(input_data)
-
-        # Adjust applications
-        fields = ['crop', 'event', 'offset', 'method', 'refine', 'window1', 'pct1', 'window2', 'pct2', 'effic', 'rate']
-        self.applications = self.applications[fields]
-        self.applications_numeric = self.format_applications()
+        # Read input dictionary
+        self.__dict__.update(input_dict)
+        self.endpoints = pd.DataFrame(self.endpoints)
 
         # Crops
-        self.crops = set(np.unique(self.applications.crop))
-
-        # Convert half-lives to degradation rates
-        deg_adjust = lambda x: 0.693 / x if x else 0.
-        self.deg_aqueous, self.deg_photolysis, self.deg_hydrolysis, self.deg_wc = \
-            map(deg_adjust, (self.soil_hl, self.aq_photolysis_hl, self.hydrolysis_hl, self.wc_metabolism_hl))
-
-        # Adjust koc
-        self.koc /= 1000.0  # now in m3/kg
-
-        # Initialize endpoints
-        self.endpoints = self.format_endpoints()
+        self.crops = set(self.applications[:, 0])
+        self.all_crops = set(map(str, crop_groups.get(crop, [])) for crop in self.crops)
 
         # Set dates
         self.dates = pd.date_range(self.sim_date_start, self.sim_date_end)
@@ -220,74 +212,10 @@ class InputFile(object):
         # Initialize an impulse response matrix if convolving timesheds
         self.irf = None if not time_of_travel.gamma_convolve else ImpulseResponseMatrix(self.dates.size)
 
-    def format_inputs(self, data):
-
-        def date(datestring):
-            m, d, y = datestring.split("/")
-            return np.datetime64("{}-{}-{}".format(y, m, d))
-
-        input_format = \
-            {"chemical_name": str,  # Atrazine
-             "region": str,  # Ohio Valley
-             "applications": pd.DataFrame,
-             "endpoints": dict,
-             "soil_hl": float,  # Soil half life
-             "wc_metabolism_hl": float,  # Water column metabolism half life
-             "ben_metabolism_hl": float,  # Benthic metabolism half life
-             "aq_photolysis_hl": float,  # Aqueous photolysis half life
-             "hydrolysis_hl": float,  # Hydrolysis half life
-             "kd_flag": int,  # 1
-             "koc": float,  # 100
-             "sim_date_start": date,  # 01/01/1984
-             "sim_date_end": date,  # 12/31/2013
-             }
-
-        # Check if any required input data are missing or extraneous data are provided
-        provided_fields = set(data.keys())
-        required_fields = set(input_format.keys())
-        unknown_fields = provided_fields - required_fields
-        missing_fields = required_fields - provided_fields
-        if unknown_fields:
-            print("Input field(s) \"{}\" not understood".format(", ".join(unknown_fields)))
-        assert not missing_fields, "Required input field(s) \"{}\" not provided".format(", ".join(missing_fields))
-
-        # Add input data as parameters to the input file object
-        input_data = {field: input_format[field](data[field]) for field in input_format.keys()}
-        self.__dict__.update(input_data)
-
-    def format_endpoints(self):
-        categories = [(r"Human health DWLOC (ug/L)", 'human', (4, 21, 60)),
-                      (r"Freshwater Fish (Tox x LOC)", 'fw_fish', (4, 60,)),
-                      (r"Freshwater Invertebrate (Tox x LOC)", 'fw_inv', (4, 21,)),
-                      (r"Estuarine/Marine Fish (Tox x LOC)", 'em_fish', (4, 21,)),
-                      (r"Estuarine/Marine Invertebrate (Tox x LOC)", 'em_inv', (4, 21,)),
-                      (r"Aquatic nonvascular plant (Tox x LOC)", 'nonvasc_plant', (4, 21,)),
-                      (r"Aquatic vascular plant (Tox x LOC)", 'vasc_plant', (4, 21,))]
-        endpoints = []
-        for long_name, species, durations in categories:
-            for level, duration in zip(('acute', 'chronic', 'overall'), durations):
-                short_name = "{}_{}".format(level, species)
-                endpoint = self.endpoints.get(short_name)
-                if endpoint:
-                    endpoints.append((long_name, short_name, np.int16(duration), np.float32(endpoint)))
-        data = np.zeros(len(endpoints), dtype=[("long_name", object), ("short_name", object),
-                                               ("duration", np.int16), ("endpoint", np.float16)])
-        data[:] = endpoints
-        return pd.DataFrame(data)
-
-    def format_applications(self):
-        replacements = {'event': ['plant', 'harvest', 'emergence', 'bloom', 'maturity'],
-                        'method': ['ground', 'foliar'],
-                        'refine': ['uniform', 'step']}
-        new_table = self.applications.copy()
-        for field, values in replacements.items():
-            new_table[field] = np.vectorize(lambda x: values.index(x))(self.applications[field])
-        return np.float32(new_table.as_matrix())
-
 
 class Navigator(object):
     def __init__(self, region_id, upstream_path):
-        self.file = upstream_path.format(region_id)
+        self.file = os.path.join(upstream_path, "region_{}.npz".format(region_id))
         self.paths, self.times, self.map, self.alias_to_reach, self.reach_to_alias = self.load()
 
     def load(self):
@@ -328,7 +256,7 @@ class Navigator(object):
 
 
 class RecipeMap(MemoryMatrix):
-    def __init__(self, in_path, region):
+    def __init__(self, region, in_path):
         self.memmap_file = os.path.join(in_path, "region_{}".format(region))
         self.dir, self.base = os.path.split(self.memmap_file)
         self.key_file = self.memmap_file + "_key.npy"
@@ -356,7 +284,7 @@ class Recipes(object):
         self.scenario_matrix = scenario_matrix
         self.write_list = sorted(write_list)
         self.recipe_ids = sorted(region.active_reaches)
-        self.outlets = set(self.recipe_ids) & set(self.region.lake_table.OutletID)
+        self.outlets = set(self.recipe_ids) & set(self.region.lake_table.outlet_comid)
 
         self.processed_count = 0
 
@@ -371,7 +299,7 @@ class Recipes(object):
         self.exceedances = MemoryMatrix(self.recipe_ids, self.i.endpoints.shape[0], name="exceed")
 
         # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
-        self.contributions = np.zeros((2, 255))
+        self.contributions = np.zeros((4, 255))
 
         # Initialize local matrix: matrix of local runoff and mass, for rapid internal recall
         self.local = MemoryMatrix(self.recipe_ids, 2, self.i.n_dates, name="recipe")
@@ -383,7 +311,7 @@ class Recipes(object):
         if lake is not None and upstream_reaches:
 
             # Get the convolution function
-            irf = impulse_response_function(1, lake.ResidenceTime, self.i.n_dates)
+            irf = impulse_response_function(1, lake.residence_time, self.i.n_dates)
 
             # Pull mass and runoff time series for all upstream reaches and add together
             if upstream_reaches:
@@ -400,15 +328,16 @@ class Recipes(object):
                     new_runoff = np.repeat(np.mean(old_runoff), self.i.n_dates)
 
                 # Add all lake mass and runoff to outlet
-                self.local.update(lake.OutletID, np.array([new_mass, new_runoff]))
+                self.local.update(lake.outlet_comid, np.array([new_mass, new_runoff]))
 
-    def calculate_contributions(self, scenarios, masses):
+    def calculate_contributions(self, scenarios, time_series):
         """ Sum the total contribution by land cover class and add to running total """
+
         scenarios = np.array(scenarios)
         scenario_names = self.scenario_matrix.scenarios[scenarios]
         classes = [name.split("cdl")[1] for name in scenario_names]
-        self.contributions[0] += np.bincount(classes, weights=masses[0], minlength=255)
-        self.contributions[1] += np.bincount(classes, weights=masses[1], minlength=255)
+        for i in range(4):  # Runoff, Erosion, Runoff Mass, Erosion Mass
+            self.contributions[i] += np.bincount(classes, weights=time_series[i], minlength=255)
 
     def fetch_scenarios(self, recipe_id):
         try:
@@ -445,11 +374,10 @@ class Recipes(object):
 
         from Tool.parameters import benthic
 
-        surface_area = self.region.flow_file.fetch(recipe_id)[self.i.month_index]
+        surface_area = self.region.flow_file.loc[recipe_id]["surface_area"]
         soil_volume = benthic.depth * surface_area
         pore_water_volume = soil_volume * benthic.porosity
         benthic_mass = benthic_loop(erosion, erosion_mass, soil_volume)
-
         return benthic_mass / pore_water_volume
 
     def process_recipes(self, recipe_ids, progress_interval=1000):
@@ -468,7 +396,7 @@ class Recipes(object):
             if scenarios is not None:
 
                 # Assess the contributions to the recipe from each source (runoff/erosion) and crop
-                self.calculate_contributions(scenarios, time_series[:, [1, 3]].sum(axis=0))
+                self.calculate_contributions(scenarios, time_series.sum(axis=0))
 
                 # Process local contributions
                 local_mass, local_runoff, benthic_conc = self.local_loading(recipe_id, time_series, active_recipe)
@@ -492,11 +420,11 @@ class Recipes(object):
     def update_exceedances(self, recipe_id, concentration):
         durations, endpoints = self.i.endpoints[["duration", "endpoint"]].as_matrix().T
         years = self.i.year - self.i.year[0]
-        exceed = moving_window(concentration, *map(np.int16, (durations, endpoints, years, self.i.year_length)))
+        exceed = exceedance_probability(concentration, *map(np.int16, (durations, endpoints, years)))
         self.exceedances.update(recipe_id, exceed)
 
-    def update_output(self, recipe_id, total_flow=None, total_runoff=None, total_mass=None,
-                      total_conc=None, benthic_conc=None):
+    def update_output(self, recipe_id, total_flow=None, total_runoff=None, total_mass=None, total_conc=None,
+                      benthic_conc=None):
 
         writer = self.time_series.writer
         index = self.time_series.index.index(recipe_id)
@@ -538,7 +466,7 @@ class Recipes(object):
         else:
             mass, runoff = self.local.fetch(reach)
 
-        flow = self.region.flow_file.fetch(reach)[self.i.month_index]
+        flow = self.region.flow_file.flows(reach, self.i.month_index)
         if flow is not None:
             total_flow, (concentration, runoff_conc) = \
                 compute_concentration(mass, runoff, self.i.n_dates, flow)
@@ -549,7 +477,8 @@ class Recipes(object):
     def write_contributions(self):
         out_file = os.path.join(self.output_dir, "{}_contributions.csv".format(self.i.chemical_name))
         active_crops = np.where(self.contributions.sum(axis=0) > 0)[0]
-        df = pd.DataFrame(data=self.contributions[:, active_crops].T, index=active_crops, columns=["Runoff", "Erosion"])
+        df = pd.DataFrame(data=self.contributions[:, active_crops].T, index=active_crops,
+                          columns=["Runoff (m3)", "Erosion (kg)", "Runoff Mass (kg)", "Erosion Mass (kg)"])
         df.to_csv(out_file)
 
     def write_time_series(self, fields='all'):
@@ -594,6 +523,9 @@ class Recipes(object):
 
     def write_output(self):
 
+        if not os.path.isdir(self.output_dir):
+            os.makedirs(self.output_dir)
+
         self.write_exceedances()
         self.write_contributions()
         self.write_time_series()
@@ -606,8 +538,8 @@ class Scenarios(object):
         self.keyfile_path = input_memmap_path + "_key.txt"
 
         # Load key file for interpreting input matrices
-        self.arrays, self.variables, self.scenarios, \
-        self.array_shape, self.variable_shape, self.start_date, self.n_dates = self.load_key()
+        self.arrays, self.variables, self.scenarios, self.array_shape, self.variable_shape, \
+        self.start_date, self.n_dates = self.load_key()
 
         # Calculate date offsets
         self.end_date = self.start_date + np.timedelta64(self.n_dates, 'D')
@@ -618,6 +550,8 @@ class Scenarios(object):
                                          self.base + "_arrays", name="arrays", input_only=True)
         self.variable_matrix = MemoryMatrix(self.scenarios, len(self.variables), path=self.path,
                                             base=self.base + "_vars", name="variables", input_only=True)
+
+        # Initialize empty matrix for procesed scenarios
         if retain is not None:
             self.processed_matrix = MemoryMatrix(self.scenarios, 4, i.dates.size, path=self.path, base=retain,
                                                  name="scenario", overwrite=False)
@@ -680,32 +614,30 @@ class Scenarios(object):
             all_crops = {crop} | set(map(str, crop_groups.get(crop, [])))
             active_crops = np.int32(sorted(self.i.crops & all_crops))
 
-            # Extract arrays
-            leaching, runoff, erosion, soil_water, plant_factor, rain = \
-                array_reader[n][:, self.start_offset:self.end_offset]
-
-            # Write runoff and erosion
-            processed_writer[n, :2] = array_reader[n][1:3, self.start_offset:self.end_offset]
-
             # If the scenario has pesticide applied, simulate application and transport
             if active_crops.any():
 
+                # Extract arrays
+                leaching, runoff, erosion, soil_water, plant_factor, rain = \
+                    array_reader[n][:, self.start_offset:self.end_offset]
+
                 # Read non-sequential variables from scenario and process
-                #covmax, org_carbon, bulk_density, *plant_dates = variable_reader[n]
-                covmax, org_carbon, bulk_density, plant_dates = variable_reader[n]
+                covmax, org_carbon, bulk_density, *plant_dates = variable_reader[n]
+
+                # Set kd depending on settings
                 kd = self.i.koc * org_carbon if self.i.kd_flag else self.koc
 
                 # Assert that all data is the proper shape for use in the functions
                 assert len(plant_dates) == 5, "Looking for 5 planting dates, found {}".format(len(plant_dates))
-                assert self.i.applications_numeric.shape[1] == 11, "Invalid application matrix, should have 11 columns"
+                assert self.i.applications.shape[1] == 11, "Invalid application matrix, should have 11 columns"
 
                 # Calculate the daily input of pesticide to the soil and plant canopy
                 application_mass = \
-                    pesticide_to_field(self.i.applications_numeric, self.i.new_year, active_crops, plant_dates, rain)
+                    pesticide_to_field(self.i.applciations, self.i.new_year, active_crops, plant_dates, rain)
 
                 # Calculate the daily mass of pesticide in the soil
-                pesticide_mass_soil = pesticide_to_soil(application_mass, rain, plant_factor, soil.distrib_2cm,
-                                                        plant.foliar_degradation, plant.washoff_coeff, covmax)
+                pesticide_mass_soil = pesticide_to_soil(application_mass, rain, plant_factor, soil.cm_2,
+                                                        plant.deg_foliar, plant.washoff_coeff, covmax)
 
                 # Determine the loading of pesticide into runoff and eroded sediment
                 runoff_mass, erosion_mass = \
@@ -713,10 +645,11 @@ class Scenarios(object):
                                        self.i.deg_aqueous, soil.runoff_effic, soil.delta_x, soil.erosion_effic,
                                        soil.soil_depth)
 
-                # Write runoff mass and erosion mass to processed matrix
-                processed_writer[n, 2:] = runoff_mass, erosion_mass
+                # Write runoff, erosion, runoff mass and erosion mass to processed matrix
+                processed_writer[n] = runoff, erosion, runoff_mass, erosion_mass
             else:
-                del leaching, runoff, erosion, soil_water, plant_factor, rain
+                # Write runoff and erosion
+                processed_writer[n, :2] = array_reader[n][1:3, self.start_offset:self.end_offset]
 
         del array_reader, variable_reader
 
@@ -726,23 +659,13 @@ def benthic_loop(eroded_soil, erosion_mass, soil_volume):
     benthic_mass = np.zeros(erosion_mass.size, dtype=np.float32)
     benthic_mass[0] = erosion_mass[0]
     for i in range(1, erosion_mass.size):
-        total_soil = eroded_soil[i] + soil_volume[i]
-        if total_soil > 0:
-            influx_ratio = eroded_soil[i] / total_soil
-            benthic_mass[i] = (benthic_mass[i - 1] * (1. - influx_ratio)) + (erosion_mass[i] * (1. - influx_ratio))
-        else:
-            benthic_mass[i] = benthic_mass[i - 1]
+        influx_ratio = eroded_soil[i] / (eroded_soil[i] + soil_volume)
+        benthic_mass[i] = (benthic_mass[i - 1] * (1. - influx_ratio)) + (erosion_mass[i] * (1. - influx_ratio))
     return benthic_mass
 
 
 def compute_concentration(transported_mass, runoff, n_dates, q):
     """ Concentration function for time of travel """
-
-    """
-    JCH - the idea here is that baseflow is estimated as the difference between total predicted q (erom) and
-    mean modeled runoff. Predicted baseflow isn't event specific and is not sensitive to runoff itself apart
-    from the mean.  This balances the sum of the modeled Q with the sum of the predicted Q
-    """
     mean_runoff = runoff.mean()  # m3/d
     baseflow = np.subtract(q, mean_runoff, out=np.zeros(n_dates), where=(q > mean_runoff))
     total_flow = runoff + baseflow
@@ -771,11 +694,22 @@ def confine_regions(nhd_regions, map_path, write_list):
         return nhd_regions
 
 
-@guvectorize(['void(float64[:], float64[:], float64[:])'], '(n),(o)->(n)', nopython=True)
-def cumulative_multiply_and_add(a, b, res):
-    res[0] = a[0]
-    for i in range(1, a.size):
-        res[i] = res[i - 1] * b[i - 1] + a[i]
+@guvectorize(['void(float64[:], int16[:], int16[:], int16[:], float64[:])'], '(p),(o),(o),(p)->(o)')
+def exceedance_probability(time_series, window_sizes, endpoints, years_since_start, res):
+    # Count the number of times the concentration exceeds the test threshold in each year
+    n_years = years_since_start.max()
+    for test_number in range(window_sizes.size):
+        window_size = window_sizes[test_number]
+        threshold = endpoints[test_number]
+        window_sum = np.sum(time_series[:window_size])
+        exceedances = np.zeros(n_years)
+        for day in range(window_size, len(time_series)):
+            year = years_since_start[day]
+            window_sum += time_series[day] - time_series[day - window_size]
+            avg = window_sum / window_size
+            if avg > threshold:
+                exceedances[year] = 1
+        res[test_number] = exceedances.sum() / n_years
 
 
 def impulse_response_function(alpha, beta, length):
@@ -787,32 +721,10 @@ def impulse_response_function(alpha, beta, length):
     return np.array([gamma_distribution(i, alpha, beta) for i in range(length)])
 
 
-@guvectorize(['void(float64[:], int16[:], int16[:], int16[:], int16[:], float64[:])'], '(p),(o),(o),(p),(n)->(o)',
-             nopython=True)
-def moving_window(time_series, window_sizes, endpoints, years_since_start, year_sizes, res):
-    # Count the number of times the concentration exceeds the test threshold in each year
-    counts = np.zeros((year_sizes.size, window_sizes.size))
-    for test_number in range(window_sizes.size):
-        window_size = window_sizes[test_number]
-        threshold = endpoints[test_number]
-        window_sum = np.sum(time_series[:window_size])
-        for day in range(window_size, len(time_series)):
-            year = years_since_start[day]
-            window_sum += time_series[day] - time_series[day - window_size]
-            avg = window_sum / window_size
-            if avg > threshold:
-                counts[year, test_number] += 1
-
-    # Average the number of yearly exceedances for each test
-    for test_number in range(window_sizes.size):
-        exceedance = 0
-        for year in range(year_sizes.size):
-            exceedance += counts[year, test_number] / year_sizes[year]
-        res[test_number] = exceedance / year_sizes.size
-
-
 @njit
 def pesticide_to_field(applications, new_years, active_crops, event_dates, rain):
+    """ Simulate timing of pesticide appplication to field """
+
     application_mass = np.zeros((2, rain.size))
     for i in range(applications.shape[0]):
         crop, event, offset, canopy, step, window1, pct1, window2, pct2, effic, rate = applications[i]
@@ -866,11 +778,18 @@ def pesticide_to_soil(application_mass, rain, plant_factor, soil_2cm, foliar_deg
 
 
 @njit
-def pesticide_to_water(pesticide_mass_soil, runoff, erosion, leaching, bulk_density,
-                       soil_water, kd, deg_aqueous, runoff_effic, delta_x, erosion_effic, soil_depth):
-    erosion_intensity = erosion_effic / soil_depth
-    output_array = np.zeros((2, runoff.size))
+def pesticide_to_water(pesticide_mass_soil, runoff, erosion, leaching, bulk_density, soil_water, kd, deg_aqueous,
+                       runoff_effic, delta_x, erosion_effic, soil_depth):
+    # Initialize output arrays
+    runoff_mass, erosion_mass = np.zeros(runoff.size), np.zeros(runoff.size)
+
+    # Initialize running variables
     total_mass, degradation_rate = 0, 0
+
+    # Initialize erosion intensity
+    erosion_intensity = erosion_effic / soil_depth
+
+    # Loop through days
     for day in range(runoff.size):
         daily_runoff = runoff[day] * runoff_effic
         total_mass = total_mass * degradation_rate + pesticide_mass_soil[day]
@@ -884,18 +803,19 @@ def pesticide_to_water(pesticide_mass_soil, runoff, erosion, leaching, bulk_dens
         average_conc = ((total_mass / retardation / delta_x) / deg_total) * (1 - degradation_rate)
 
         if leaching[day] > 0:
-            output_array[0, day] = average_conc * daily_runoff
+            runoff_mass[day] = average_conc * daily_runoff
         if erosion[day] > 0:
             enrich = np.exp(2.0 - (0.2 * np.log10(erosion[day])))
             enriched_eroded_mass = erosion[day] * enrich * kd * erosion_intensity * 0.1
-            output_array[1, day] = average_conc * enriched_eroded_mass
+            erosion_mass[day] = average_conc * enriched_eroded_mass
 
-    return output_array
+    return runoff_mass, erosion_mass
 
 
 if __name__ == "__main__":
-    from .pesticide_calculator import main
     import cProfile
-
-    cProfile.run('main()')
-    # main()
+    from .pesticide_calculator import main
+    if True:
+        cProfile.run('main()')
+    else:
+        main()

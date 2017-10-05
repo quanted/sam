@@ -1,4 +1,3 @@
-import datetime
 import os
 from ..Development.test_reaches import mtb_monitoring
 
@@ -18,8 +17,8 @@ path_params = {
     "map_path": os.path.join(path, "Preprocessed", "InputMaps"),
     "output_path": os.path.join(path, "Results"),
     "flow_dir": os.path.join(path, "Preprocessed", "FlowFiles"),
-    "lakefile_path": os.path.join(path, "Preprocessed", "LakeFiles", "region_{}.csv"),
-    "upstream_path": os.path.join(path, "Preprocessed", "Upstream", "upstream_{}.npz"),
+    "lakefile_path": os.path.join(path, "Preprocessed", "LakeFiles"),
+    "upstream_path": os.path.join(path, "Preprocessed", "Navigators"),
 }
 
 write_list = mtb_monitoring
@@ -28,20 +27,19 @@ write_list = mtb_monitoring
 
 # Parameters related directly to pesticide degradation
 plant_params = {
-    "foliar_degradation": 0.0,  # per day
+    "deg_foliar": 0.0,  # per day
     "washoff_coeff": 0.1,  # Washoff coefficient
 }
 
 # Parameters related to soils in the field
 soil_params = {
     "delta_x": 0.02,  # Surface depth (m)
-    "distrib_2cm": 0.75,  # Soil distribution, top 2 cm. Revised for 1 compartment - uniform extraction
+    "cm_2": 0.75,  # Soil distribution, top 2 cm. Revised for 1 compartment - uniform extraction
     "runoff_effic": 0.266,  # Runoff efficiency
     "prben": 0.5,  # PRBEN factor - default PRZM5, MMF
     "erosion_effic": 0.266,  # Erosion efficiency - subject to change, MMF
     "soil_depth": 0.1,  # soil depth in cm - subject to change, MMF
     "delx": 2.0,  # cm, one 2 cm compartment, MMF
-    "delt": 86400.  # seconds per day, time interval
 }
 
 # Time of Travel defaults
@@ -70,7 +68,6 @@ benthic_params = {
     "doc": 5,  # benthic dissolved organic carbon content (mg/L)
     "bnmas": 0,  # benthic biomass intensity (g/m2)
     "d_over_dx": 1  # mass transfer coefficient for exchange between benthic and water column (m/s)
-    # (can be modified later if data exists)
 }
 
 plant = ParameterSet(plant_params)

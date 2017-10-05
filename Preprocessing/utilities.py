@@ -1,51 +1,42 @@
 import os
-import ogr
-from collections import OrderedDict, defaultdict
+import numpy as np
+import pandas as pd
+
+from collections import OrderedDict
+from dbfread import DBF, FieldParser
 
 
-# Reads the contents of a dbf table
-def read_dbf(dbf_file, out_fields=None):
+class NHDTable(pd.DataFrame):
+    def __init__(self, region, path):
+        super().__init__()
+        self.region = region
+        self.path = path
+        self.table_path = os.path.join(path, "region_{}.npz".format(region))
 
-    # Initialize file
-    driver = ogr.GetDriverByName("ESRI Shapefile")
-    data_source = driver.Open(dbf_file)
-    layer = data_source.GetLayer(0)
+        data, header = self.read_table()
+        super(NHDTable, self).__init__(data=data, columns=header)
 
-    # Set fields
-    ld = layer.GetLayerDefn()
-    fields = {ld.GetFieldDefn(i).GetName() for i in range(ld.GetFieldCount())}
-    if out_fields:
-        missing_fields = set(out_fields) - fields
-        remedies = [lambda x: x.upper(), lambda x: x.capitalize()]
-        while missing_fields and remedies:
-            new_fields = map(remedies.pop(0), out_fields)
-            out_fields = [nf if nf in fields else out_fields[i] for i, nf in enumerate(new_fields)]
-            missing_fields = set(out_fields) - fields
-        if missing_fields:
-            print("Fields {} not found in {}".format(out_fields, dbf_file))
-        fields = [field for field in out_fields if not field in missing_fields]
+    def read_table(self):
+        assert os.path.isfile(self.table_path), "Table not found for region {} in {}".format(self.region, self.path)
+        data = np.load(self.table_path)
+        return data['table'], data['key']
 
-    # Read data
-    if len(fields) > 1:
-        table = [[row.GetField(f) for f in fields] for row in layer]
-    else:
-        table = [row.GetField(list(fields)[0]) for row in layer]
-    # noinspection PyUnusedLocal
-    data_source = None
+
+def read_dbf(dbf_file):
+    class MyFieldParser(FieldParser):
+        def parse(self, field, data):
+            try:
+                return FieldParser.parse(self, field, data)
+            except ValueError:
+                return None
+    try:
+        dbf = DBF(dbf_file)
+        table = pd.DataFrame(iter(dbf))
+    except ValueError:
+        dbf = DBF(dbf_file, parserclass=MyFieldParser)
+        table = pd.DataFrame(iter(dbf))
+    table.rename(columns={column: column.lower() for column in table.columns}, inplace=True)
     return table
-
-# Assembles a dictionary of NHD Plus directory structure indexed by region
-def get_nhd(nhd_dir=r"T:\NationalData\NHDPlusV2", region_filter='all'):
-    all_paths = defaultdict()
-    regions = list(nhd_states.keys())
-    region_dirs = {"NHDPlus{}".format(region) for region in regions}
-    for root_dir, sub_dirs, _ in os.walk(nhd_dir):
-        if set(sub_dirs) & region_dirs:
-            for sub_dir in sub_dirs:
-                region = sub_dir.lstrip("NHDPlus")
-                if region in regions:
-                    all_paths[sub_dir.lstrip("NHDPlus")] = os.path.join(root_dir, sub_dir)
-    return OrderedDict(sorted(all_paths.items()))
 
 
 nhd_states = OrderedDict((('01', {"ME", "NH", "VT", "MA", "CT", "RI", "NY"}),

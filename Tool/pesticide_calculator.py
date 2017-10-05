@@ -3,12 +3,13 @@ from .functions import InputFile, Hydroregion, Scenarios, Recipes, confine_regio
 
 
 def pesticide_calculator(input_data):
+
     # Initialize parameters from front end
     inputs = InputFile(input_data)
 
     # Simulate application of pesticide to all input scenarios
     print("Processing scenarios...")
-    scenarios = Scenarios(inputs, p.input_scenario_path, retain=None)  # retain="yesquatre"
+    scenarios = Scenarios(inputs, p.input_scenario_path, retain="cinq")  # retain="cinq"
 
     # Loop through all NHD regions included in selected runs
     for region in confine_regions(nhd_regions, p.map_path, write_list):
@@ -25,6 +26,7 @@ def pesticide_calculator(input_data):
 
             # Iterate through batches of reaches upstream of a reservoir
             for reaches, lake in region.cascade():
+
                 # Process all the recipes in the batch
                 recipes.process_recipes(reaches)
 
@@ -43,5 +45,4 @@ def main(input_data=None):
 
 if __name__ == "__main__":
     from .chemicals import atrazine
-
     main(atrazine)
