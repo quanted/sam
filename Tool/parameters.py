@@ -77,6 +77,20 @@ time_of_travel = ParameterSet(time_of_travel_params)
 water_column = ParameterSet(water_column_params)
 benthic = ParameterSet(benthic_params)
 
+heading_lookup = {'runoff_conc': 'RunoffConc(ug/L)',
+                  'local_runoff': 'LocalRunoff(m3)',
+                  'total_runoff': 'TotalRunoff(m3)',
+                  'local_mass': 'LocalMass(m3)',
+                  'total_flow': 'TotalFlow(m3)',
+                  'baseflow': 'Baseflow(m3)',
+                  'total_conc': 'TotalConc(ug/L)',
+                  'total_mass': 'TotalMass(kg)',
+                  'wc_conc': 'WC_Conc(ug/L)',
+                  'erosion': 'Erosion(kg)',
+                  'erosion_mass': 'ErodedMass(kg)',
+                  'runoff_mass': 'RunoffMass(kg)',
+                  'benthic_conc': 'BenthicConc(ug/L)'}
+
 nhd_regions = {'01', '02', '03N', '03S', '03W', '04', '05', '06', '07', '08', '09',
                '10U', '10L', '11', '12', '13', '14', '15', '16', '17', '18'}
 

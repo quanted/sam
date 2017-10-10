@@ -9,7 +9,7 @@ def pesticide_calculator(input_data):
 
     # Simulate application of pesticide to all input scenarios
     print("Processing scenarios...")
-    scenarios = Scenarios(inputs, p.input_scenario_path, retain="cinq")  # retain="cinq"
+    scenarios = Scenarios(inputs, p.input_scenario_path, retain="six")  # retain="six"
 
     # Loop through all NHD regions included in selected runs
     for region in confine_regions(nhd_regions, p.map_path, write_list):
@@ -32,6 +32,7 @@ def pesticide_calculator(input_data):
 
                 # Modify all stored recipe data in the batch to simulate passage through reservoir
                 recipes.burn_reservoir(lake, reaches)
+
 
         # Write output
         recipes.write_output()

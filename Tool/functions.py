@@ -1,6 +1,5 @@
 import os
 import json
-import logging
 import math
 
 import numpy as np
@@ -55,9 +54,8 @@ class MemoryMatrix(object):
 
     def fetch_multiple(self, indices, copy=False, verbose=False, aliased=True, return_index=False, columns=None):
 
-        mode = 'c' if copy else 'r'
+        # If selecting by aliases, get indices for aliases
         index = None
-
         if aliased:
             addresses = np.int32([self.lookup.get(x, -1) for x in indices])
             found = np.where(addresses >= 0)[0]
@@ -68,14 +66,12 @@ class MemoryMatrix(object):
                     print("Missing {} of {} indices in {} matrix".format(not_found, len(addresses), self.name))
             indices = addresses[found]
 
-        array = np.memmap(self.path, dtype='float32', mode=mode, shape=self.shape)
+        # Fetch data from memory map
+        array = np.memmap(self.path, dtype='float32', mode='c' if copy else 'r', shape=self.shape)
         out_array = array[indices] if columns is None else array[np.ix_(indices, columns)]
         del array
 
-        if return_index:
-            return out_array, index
-        else:
-            return out_array
+        return out_array, index if return_index else out_array
 
     def update(self, key, value, aliased=True):
         array = self.writer
@@ -286,6 +282,8 @@ class Recipes(object):
         self.recipe_ids = sorted(region.active_reaches)
         self.outlets = set(self.recipe_ids) & set(self.region.lake_table.outlet_comid)
 
+        self.diagnostic = [0, 0, 0, 0]
+
         self.processed_count = 0
 
         # Initialize output matrices
@@ -347,24 +345,24 @@ class Recipes(object):
             return None, None
         else:
             # Fetch all scenarios and multiply by area.  For erosion, area is adjusted.
+            # JCH - processing time here is 50/50 on fetch_multiple and math operations
             array = self.scenario_matrix.processed_matrix.fetch_multiple(scenarios, copy=True, aliased=False)
-            array = np.swapaxes(array, 0, 2)
-            array[:, :2] *= areas  # runoff, runoff_mass
-            array[:, 2:] *= (areas / 10000.) ** .12  # erosion, erosion_mass
-            return scenarios, array
+            array = np.rollaxis(array, 0, 3)
+            array[:2] *= areas  # runoff, runoff_mass.
+            array[2:] *= np.power(areas / 10000., .12)  # erosion, erosion_mass
+
+            return scenarios, array  # (var, date, scenario)
 
     def local_loading(self, recipe_id, cumulative, process_benthic=False):
         """Pull all scenarios in recipe from scenario matrix and adjust for area"""
 
         # Sum time series from all scenarios
-        runoff, erosion, runoff_mass, erosion_mass = cumulative.sum(axis=2).T
+        runoff, erosion, runoff_mass, erosion_mass = cumulative
 
         # Run benthic/water column partitioning
-        if process_benthic:
-            benthic_conc = self.partition_benthic(recipe_id, erosion, erosion_mass)
-        else:
-            benthic_conc = None
+        benthic_conc = self.partition_benthic(recipe_id, erosion, erosion_mass) if process_benthic else None
 
+        # If it's a lake outlet, do this
         if recipe_id in self.outlets:
             runoff_mass, runoff = np.array([runoff_mass, runoff]) + self.local.fetch(recipe_id)
 
@@ -392,14 +390,15 @@ class Recipes(object):
                 print("Processed {} of {} recipes".format(self.processed_count, len(self.recipe_ids)))
 
             # Fetch time series data from all scenarios in re cipe
-            scenarios, time_series = self.fetch_scenarios(recipe_id)
+            scenarios, time_series = self.fetch_scenarios(recipe_id)  # (var, date, scenario)
             if scenarios is not None:
 
                 # Assess the contributions to the recipe from each source (runoff/erosion) and crop
-                self.calculate_contributions(scenarios, time_series.sum(axis=0))
+                self.calculate_contributions(scenarios, time_series.sum(axis=1))
 
                 # Process local contributions
-                local_mass, local_runoff, benthic_conc = self.local_loading(recipe_id, time_series, active_recipe)
+                local_mass, local_runoff, benthic_conc = \
+                    self.local_loading(recipe_id, time_series.sum(axis=2), active_recipe)
 
                 # Update local array with mass and runoff
                 self.local.update(recipe_id, np.array([local_mass, local_runoff]))
@@ -416,6 +415,7 @@ class Recipes(object):
 
                         # Store results in output array
                         self.update_output(recipe_id, total_flow, total_runoff, total_mass, total_conc, benthic_conc)
+
 
     def update_exceedances(self, recipe_id, concentration):
         durations, endpoints = self.i.endpoints[["duration", "endpoint"]].as_matrix().T
@@ -589,10 +589,6 @@ class Scenarios(object):
         # Initialize readers and writers
         # Reminder: array_matrix.shape, processed_matrix.shape = (scenario, variable, date)
         array_reader, variable_reader = self.array_matrix.reader, self.variable_matrix.reader
-        logging.info("array_reader")
-        logging.info(array_reader)
-        logging.info("variable_reader")
-        logging.info(variable_reader)
         processed_writer = self.processed_matrix.writer
 
         # Iterate scenarios
@@ -814,7 +810,8 @@ def pesticide_to_water(pesticide_mass_soil, runoff, erosion, leaching, bulk_dens
 
 if __name__ == "__main__":
     import cProfile
-    from .pesticide_calculator import main
+    from Tool.pesticide_calculator import main
+
     if True:
         cProfile.run('main()')
     else:
