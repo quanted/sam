@@ -1,1 +1,3 @@
-Preprocessed/
+!Preprocessed/.gitignore
+Preprocessed/*
+!Preprocessed/.gitignore
