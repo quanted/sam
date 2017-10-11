@@ -71,7 +71,10 @@ class MemoryMatrix(object):
         out_array = array[indices] if columns is None else array[np.ix_(indices, columns)]
         del array
 
-        return out_array, index if return_index else out_array
+        if return_index:
+            return out_array, index
+        else:
+            return out_array
 
     def update(self, key, value, aliased=True):
         array = self.writer
@@ -186,7 +189,7 @@ class InputFile(object):
     """ User-specified parameters and parameters derived from them """
 
     def __init__(self, input_dict):
-        from .parameters import time_of_travel, crop_groups
+        from .parameters import time_of_travel, crop_groups, paths
 
         # Read input dictionary
         self.__dict__.update(input_dict)
@@ -208,6 +211,8 @@ class InputFile(object):
         # Initialize an impulse response matrix if convolving timesheds
         self.irf = None if not time_of_travel.gamma_convolve else ImpulseResponseMatrix(self.dates.size)
 
+        # Initialize output directory
+        self.token = self.csrfmiddlewaretoken
 
 class Navigator(object):
     def __init__(self, region_id, upstream_path):
@@ -276,7 +281,7 @@ class Recipes(object):
         self.i = i
         self.year = year
         self.region = region
-        self.output_dir = os.path.join(output_path, i.chemical_name)
+        self.output_dir = os.path.join(output_path, i.token)
         self.scenario_matrix = scenario_matrix
         self.write_list = sorted(write_list)
         self.recipe_ids = sorted(region.active_reaches)
@@ -287,8 +292,8 @@ class Recipes(object):
         self.processed_count = 0
 
         # Initialize output matrices
+        self.output_fields = ['total_flow', 'total_runoff', 'total_mass', 'total_conc', 'benthic_conc']
         if self.write_list:
-            self.output_fields = ['total_flow', 'total_runoff', 'total_mass', 'total_conc', 'benthic_conc']
             self.time_series = MemoryMatrix(self.write_list, len(self.output_fields), self.i.n_dates, name="output")
         else:
             self.time_series = None

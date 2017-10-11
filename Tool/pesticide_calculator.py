@@ -33,7 +33,6 @@ def pesticide_calculator(input_data):
                 # Modify all stored recipe data in the batch to simulate passage through reservoir
                 recipes.burn_reservoir(lake, reaches)
 
-
         # Write output
         recipes.write_output()
 

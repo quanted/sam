@@ -46,7 +46,8 @@ class InputDict(dict):
              ["kd_flag", int],  # 1
              ["koc", float],  # 100
              ["sim_date_start", self.date],  # 01/01/1984
-             ["sim_date_end", self.date]]  # 12/31/2013
+             ["sim_date_end", self.date],
+             ["csrfmiddlewaretoken", str]]  # asrWb6LtFnBbULD0JXz3l71cCEyVi8dpPhiwo5rGO489v8NRNjpt9N4nTy0eNJGh
 
         self.application_fields = \
             [['crop', str],
