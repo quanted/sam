@@ -1,15 +1,24 @@
-import numpy as np
+import pandas as pd
+import datetime
 
-n_scenarios = 3
-n_vars = 4
-n_dates = 5
 
-a = np.arange(n_scenarios * n_vars * n_dates).reshape((n_scenarios, n_vars, n_dates))
+file = r"..\bin\Preprocessed\ScenarioMatrices\IN_scenarios_agg_101017.txt"
 
-b = a.reshape((n_scenarios, n_vars * n_dates))
+with open(file) as f:
+    a = next(f).split(",")
+    b = next(f).split(",")
 
-c = b.reshape((n_scenarios, n_vars, n_dates))
+for pair in sorted(zip(a, b)):
+    print(pair)
 
-print(a)
-print(b)
-print(c)
+
+
+
+
+
+
+
+
+
+
+
