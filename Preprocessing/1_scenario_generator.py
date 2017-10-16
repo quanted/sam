@@ -4,56 +4,37 @@ import math
 import pandas as pd
 import numpy as np
 from numba import njit
-from Tool.functions import MemoryMatrix
-from datetime import datetime
-import time
+from ubertool_ecorest.ubertool.ubertool.sam.Tool.functions import MemoryMatrix
 
 
-class InputMatrix(object):
+class InputMatrix(pd.DataFrame):
     def __init__(self, path):
-
-        input_types = dict([
-            ('plntbeg', float),
-            ('hvstbeg', float),  # jch - these need to be float because the NA values prevent reading as integer
-            ('cdl', int),  # not needed
-            ('cokey', str),  # not needed
-            ('date', str),  # probably not needed
-            ('hsg', str),
-            ('leachpot', str),
-            ('mukey', str),
-            ('rainfall', int),
-            ('scenario', str),
-            ('state', str),
-            ('weatherID', str)])
-
+        super().__init__()
         self.path = path
-        self.data = pd.read_csv(path, dtype=input_types)
-        self.scenarios = self.data.scenario
+        super(InputMatrix, self).__init__(pd.read_csv(self.path, dtype=matrix_fields))
+        # self.set_index("scenario", inplace=True)
+        self.modify_array()
 
     @staticmethod
     def check_scenario(r):
         return min((r.bd_5, r.bd_20, r.fc_5, r.fc_20)) > 0.0009
 
     def modify_array(self):
-        for var in ('orgC_5', 'cintcp', 'slope', 'covmax', 'sfac', 'anedt', 'amxdr'):
-            self.data[var] /= 100.  # cm -> m
-        for var in ('anedt', 'amxdr'):
-            self.data[var] = np.min((self.data[var], self.data['RZmax'] / 100.))
+        for var in ('orgC_5', 'cintcp', 'slope', 'covmax', 'sfac', 'anetd', 'amxdr'):
+            self[var] /= 100.  # cm -> m
+        for var in ('anetd', 'amxdr'):
+            self[var] = np.min((self[var], self['RZmax'] / 100.))
         for var in ['bd_5', 'bd_20']:
-            self.data[var] *= 1000  # kg/m3
+            self[var] *= 1000  # kg/m3
 
     def iterate_rows(self, report=0, scenario_filter=None):
         # Read all data into pandas table
-        self.modify_array()
-        for i, scenario in self.data.iterrows():
+        for i, scenario in self.iterrows():
             if not scenario_filter or scenario.scenario in scenario_filter:
                 if report > 0 and not (i + 1) % report:
                     print("Processed {} scenarios".format(i + 1))
                 if self.check_scenario(scenario):
                     yield scenario
-                else:
-                    # print("Check fc and bd")
-                    pass
 
 
 class MetfileMatrix(MemoryMatrix):
@@ -75,7 +56,6 @@ class MetfileMatrix(MemoryMatrix):
                                             base=self.name, input_only=True)
 
     def load_key(self):
-
         try:
             data = np.load(self.keyfile_path)
             start_date, end_date = map(np.datetime64, data[:2])
@@ -87,10 +67,11 @@ class MetfileMatrix(MemoryMatrix):
 
     def fetch_station(self, station_id):
         try:
-            data = np.array(super(MetfileMatrix, self).fetch(station_id, copy=True, verbose=False)).T
+            data = np.array(self.fetch(str(station_id), copy=True, verbose=True)).T
             data[:2] /= 100.  # Precip, PET  cm -> m
             return data
-        except:
+        except Exception as e:
+            print(e)
             print("Met station {} not found".format(station_id))
 
 
@@ -101,13 +82,13 @@ class OutputMatrix(object):
         self.dir, self.name = os.path.split(output_memmap)
         self.arrays = ['leaching', 'runoff', 'erosion', 'soil_water', 'plant_factor', 'rain']
         self.variables = ['covmax', 'org_carbon', 'bulk_density',
-                          'plant_beg', 'harvest_beg', 'emerg_beg', 'bloom_beg', 'mat_beg']
+                          'plant_beg', 'harvest_beg', 'emerg_beg', 'bloom_beg', 'mat_beg', 'overlay']
 
         # Initalize matrices
-        self.array_matrix = MemoryMatrix(self.in_matrix.scenarios, len(self.arrays), self.met.n_dates,
+        self.array_matrix = MemoryMatrix(self.in_matrix.scenario, len(self.arrays), self.met.n_dates,
                                          name=self.name + "_arrays", path=self.dir)
 
-        self.variable_matrix = MemoryMatrix(self.in_matrix.scenarios, len(self.variables),
+        self.variable_matrix = MemoryMatrix(self.in_matrix.scenario, len(self.variables),
                                             name=self.name + "_vars", path=self.dir)
 
         # Create key
@@ -117,18 +98,19 @@ class OutputMatrix(object):
 
     def create_keyfile(self):
         with open(os.path.join(self.dir, self.name + "_key.txt"), 'w') as f:
-            for var in (self.arrays, self.variables, self.in_matrix.scenarios):
+            for var in (self.arrays, self.variables, self.in_matrix.scenario):
                 f.write(",".join(var) + "\n")
             f.write(pd.to_datetime(self.met.start_date).strftime('%Y-%m-%d') + "\n")
-            f.write(",".join(map(str, [len(self.in_matrix.scenarios), len(self.arrays), self.met.n_dates,
-                                       len(self.in_matrix.scenarios), len(self.variables)])))
+            f.write(",".join(map(str, [len(self.in_matrix.scenario), len(self.arrays), self.met.n_dates,
+                                       len(self.in_matrix.scenario), len(self.variables)])))
             # f.write(",".join(map(str, list(self.array_matrix.shape) + list(self.variable_matrix.shape))))
 
     def populate(self):
-        for row in self.in_matrix.iterate_rows(report=1000):
+        for i, row in enumerate(self.in_matrix.iterate_rows(report=1000)):
             s = Scenario(row, self.met)
-            self.array_matrix.update(s.scenario, s.arrays)
-            self.variable_matrix.update(s.scenario, s.vars)
+            if s.valid:
+                self.array_matrix.update(s.scenario, s.arrays)
+                self.variable_matrix.update(s.scenario, s.vars)
 
 
 class Scenario(object):
@@ -146,6 +128,8 @@ class Scenario(object):
         data = met_matrix.fetch_station(self.weatherID)
 
         if data is not None:
+            self.valid = True
+
             self.precip, self.pet, self.temp = data
 
             self.plant_factor, self.emrgbeg, self.matbeg = self.plant_growth()
@@ -164,15 +148,13 @@ class Scenario(object):
                 [self.leaching[0], self.runoff, self.erosion_loss, self.soil_water[0], self.plant_factor, self.rain])
 
             self.vars = np.array(
-                [self.covmax, self.orgC_5, self.bd_5, self.plntbeg, self.hvstbeg, self.emrgbeg, self.blmbeg,
-                 self.matbeg])
+                [self.covmax, self.orgC_5, self.bd_5, self.plntbeg, self.harvbeg, self.emrgbeg, self.blmbeg,
+                 self.matbeg, self.overlay])
+        else:
+            self.valid = False
 
     def erosion(self):
-
-        from scenario_parameters import types
-
-        type_matrix = types[self.rainfall - 1]
-
+        type_matrix = types[int(self.rainfall) - 1]
         erosion_loss = process_erosion(self.n_dates, self.slope, self.ManningsN, self.runoff,
                                        self.effective_rain, self.cn, self.usle_klscp, type_matrix)
 
@@ -180,25 +162,23 @@ class Scenario(object):
 
     def hydrology(self):
 
-        from scenario_parameters import delta_x, increments_1, increments_2
-
         rain, effective_rain = rain_and_snow(self.precip, self.temp, self.sfac)
 
         runoff, soil_water, leaching = \
             surface_hydrology(self.field_m, self.wilt_m, self.plant_factor, self.cn, self.depth, self.soil_water_m,
-                              self.irr_type, self.deplallw, self.anedt, self.amxdr, self.leachfrac, self.cintcp,
-                              self.n_dates, effective_rain, rain, self.pet, increments_1 + increments_2, delta_x)
+                              self.irr_type, self.deplallw, self.anetd, self.amxdr, self.leachfrac, self.cintcp,
+                              self.n_dates, effective_rain, rain, self.pet, increments_1 + increments_2)
 
         return rain, effective_rain, runoff, soil_water[:increments_1], leaching[:increments_1]
 
     def plant_growth(self):
 
-        if not any(map(math.isnan, (self.plntbeg, self.hvstbeg))):
+        if not any(map(math.isnan, (self.plntbeg, self.harvbeg))):
             emerg_beg = int(self.plntbeg) + 7
-            mat_beg = int((int(self.plntbeg) + int(self.hvstbeg)) / 2)
+            mat_beg = int((int(self.plntbeg) + int(self.harvbeg)) / 2)
             emergence = ((self.met.new_years + np.timedelta64(emerg_beg + 7, 'D')) - self.met.start_date).astype(int)
             maturity = ((self.met.new_years + np.timedelta64(mat_beg, 'D')) - self.met.start_date).astype(int)
-            harvest = ((self.met.new_years + np.timedelta64(int(self.hvstbeg), 'D')) - self.met.start_date).astype(int)
+            harvest = ((self.met.new_years + np.timedelta64(int(self.harvbeg), 'D')) - self.met.start_date).astype(int)
             plant_factor = interpolate_plant_stage(self.n_dates, emergence, maturity, harvest, 0, 1)
         else:
             plant_factor = np.zeros(self.n_dates)
@@ -207,7 +187,6 @@ class Scenario(object):
         return plant_factor, emerg_beg, mat_beg
 
     def process_soil(self):
-        from scenario_parameters import delta_x, increments_1, increments_2, slope_range, uslep_values
 
         cn = (self.plant_factor * (self.cn_ag - self.cn_fallow)) + self.cn_fallow
 
@@ -227,7 +206,6 @@ class Scenario(object):
 @njit
 def initialize_soil(delta_x, increments_1, increments_2,
                     bd_5, fc_5, wp_5, bd_20, fc_20, wp_20):
-    """ Initialize soil properties """
     soil_properties = np.zeros((5, increments_1 + increments_2))
 
     for i in range(increments_1):
@@ -241,7 +219,7 @@ def initialize_soil(delta_x, increments_1, increments_2,
             fc_20 * delta_x[i], fc_20 * delta_x[i], wp_20 * delta_x[i]
 
     # Generate a cumulative vector of depths
-    cumsum = 0  # JCH - Not using cumsum here because I don't know how to put it in an array
+    cumsum = 0
     for i in range(delta_x.size):
         cumsum += delta_x[i]
         soil_properties[4, i] = cumsum
@@ -251,7 +229,6 @@ def initialize_soil(delta_x, increments_1, increments_2,
 
 @njit
 def rain_and_snow(precip, temp, sfac):
-    """ Simplified for use with numba"""
     rain_and_melt = np.zeros((2, precip.size))
     snow_accumulation = 0.
     for i in range(precip.size):
@@ -292,16 +269,11 @@ def find_node(n, depth, target_depth):
     return node
 
 
-def irrigation():
-    pass
-
-
 @njit
 def surface_hydrology(field_m, wilt_m, plant_factor, cn, depth, soil_water_m,  # From other function output
                       irrigation_type, irr_depletion, anetd, root_max, leaching_factor, cintcp,  # From scenario
                       num_records, effective_rain, rain, potential_et,  # From metfile
-                      n_soil_increments, delta_x):  # From parameters
-
+                      n_soil_increments):  # From parameters
 
     # Initialize arrays
     maxdays = plant_factor.size
@@ -355,8 +327,7 @@ def surface_hydrology(field_m, wilt_m, plant_factor, cn, depth, soil_water_m,  #
         # Determine daily runoff (Soil moisture curve number option)
         if effective_rain[day] > 0:
             s = 25.4 / cn[day] - .254  # Revised, CN soil moisture adjustment removed, mmf 9/2015
-
-            if effective_rain[day] > (0.2 * s):  # Runoff by the Curve Number Method
+            if effective_rain[day] > (0.2 * s):  # unoff by the Curve Number Method
                 runoff[day] = max(0, (effective_rain[day] - (0.2 * s)) ** 2 / (effective_rain[day] + (0.8 * s)))
 
         # Leaching into top layer
@@ -454,11 +425,6 @@ def process_erosion(num_records, slope, manning_n, runoff, rain, cn, usle_klscp,
                 interp = (lower % 1) * delta
                 c = raintype[int(lower)] + interp
 
-                # peak_discharge = temp_variable*(afield/2589988.11 sqmi)*(runoff*39.370079) /(Afield*10.7639104 ft2/m2)*(3600 sec/hr)*(304.8 mm/ft)
-            # = temp_variable*runoff*3600.*304.8*39.370079/2589988.11/10.7639104
-            # 1.54958679 = 3600.*304.8*39.370079/2589988.11/10.7639104
-
-
             peak_discharge = 10. ** (c[0] + c[1] * np.log10(t_conc) + c[2] * (np.log10(t_conc)) ** 2)
             qp = 1.54958679 * runoff[i] * peak_discharge
             erosion_loss[i] = 1.586 * (runoff[i] * 1000. * qp) ** .56 * usle_klscp[i] * 1000.  # kg/d
@@ -467,9 +433,9 @@ def process_erosion(num_records, slope, manning_n, runoff, rain, cn, usle_klscp,
 
 
 def main():
-    input_file = r"..\bin\Preprocessed\ScenarioMatrices\MTB_scenarios_030717_2.txt"
-    metfile_memmap = r"..\bin\Preprocessed\MetTables\metfile"
-    output_memmap = r"..\bin\Preprocessed\Scenarios\mark_twain"
+    input_file = os.path.join("..", "bin", "Preprocessed", "ScenarioMatrices", "IN_scenarios_agg_101017.txt")
+    metfile_memmap = os.path.join("..", "bin", "Preprocessed", "MetTables", "metfile")
+    output_memmap = os.path.join("..", "bin", "Preprocessed", "Scenarios", "in1010")
 
     # Initialize input met matrix
     met = MetfileMatrix(metfile_memmap)
@@ -481,9 +447,132 @@ def main():
     OutputMatrix(in_matrix, met, output_memmap)
 
 
+# Parameters
+increments_1 = 1  # number of increments in top 2-cm layer: 1 COMPARTMENT, UNIFORM EXTRACTION
+increments_2 = 20  # number of increments in 2nd 100-cm layer (not used in extraction)
+delta_x = np.array([0.02] + [0.05] * ((increments_1 + increments_2) - 1))
+
+# Values are from Table F1 of TR-55, interpolated values are included to make arrays same size
+erosion_header = [.1, .15, .2, .25, .3, .35, .4, .45, .5]
+types = np.array([
+    [[2.3055, -0.51429, -0.1175],
+     [2.2706, -0.50908, -0.1034],
+     [2.23537, -0.50387, -0.08929],
+     [2.18219, -0.48488, -0.06589],
+     [2.10624, -0.45695, -0.02835],
+     [2.00303, -0.40769, -0.01983],
+     [1.87733, -0.32274, -0.05754],
+     [1.76312, -0.15644, -0.00453],
+     [1.67889, -0.0693, 0.]],
+    [[2.0325, -0.31583, -0.13748],
+     [1.97614, -0.29899, -0.10384],
+     [1.91978, -0.28215, -0.0702],
+     [1.83842, -0.25543, -0.02597],
+     [1.72657, -0.19826, 0.02633],
+     [1.70347, -0.17145, 0.01975],
+     [1.68037, -0.14463, 0.01317],
+     [1.65727, -0.11782, 0.00658],
+     [1.63417, -0.091, 0.]],
+    [[2.55323, -0.61512, -0.16403],
+     [2.53125, -0.61698, -0.15217],
+     [2.50975, -0.61885, -0.1403],
+     [2.4873, -0.62071, -0.12844],
+     [2.46532, -0.62257, -0.11657],
+     [2.41896, -0.61594, -0.0882],
+     [2.36409, -0.59857, -0.05621],
+     [2.29238, -0.57005, -0.02281],
+     [2.20282, -0.51599, -0.01259]],
+    [[2.47317, -0.51848, -0.17083],
+     [2.45395, -0.51687, -0.16124],
+     [2.43473, -0.51525, -0.15164],
+     [2.4155, -0.51364, -0.14205],
+     [2.39628, -0.51202, -0.13245],
+     [2.35477, -0.49735, -0.11985],
+     [2.30726, -0.46541, -0.11094],
+     [2.24876, -0.41314, -0.11508],
+     [2.17772, -0.36803, -0.09525]]])
+
+slope_range = np.array([-1, 2.0, 7.0, 12.0, 18.0, 24.0])
+uslep_values = np.array([0.6, 0.5, 0.6, 0.8, 0.9, 1.0])
+
+matrix_fields = \
+    {'scenario': object,  # desc
+     'mukey': object,  # SSURGO mapunit key (NOT USED)
+     'cokey': object,  # SSURGO component key (NOT USED)
+     'state': object,  # State name (NOT USED)
+     'cdl': object,  # CDL class number (NOT USED)
+     'weatherID': object,  # Weather station ID
+     'date': object,  # Date (NOT USED)
+     'leachpot': object,  # Leaching potential
+     'hsg': object,  # Hydrologic soil group
+     'cn_ag': float,  # desc
+     'cn_fallow': float,  # desc
+     'orgC_5': float,  # desc
+     'orgC_20': float,  # desc
+     'orgC_50': float,  # desc
+     'orgC_100': float,  # desc
+     'bd_5': float,  # desc
+     'bd_20': float,  # desc
+     'bd_50': float,  # desc
+     'bd_100': float,  # desc
+     'fc_5': float,  # desc
+     'fc_20': float,  # desc
+     'fc_50': float,  # desc
+     'fc_100': float,  # desc
+     'wp_5': float,  # desc
+     'wp_20': float,  # desc
+     'wp_50': float,  # desc
+     'wp_100': float,  # desc
+     'pH_5': float,  # desc
+     'pH_20': float,  # desc
+     'pH_50': float,  # desc
+     'pH_100': float,  # desc
+     'sand_5': float,  # desc
+     'sand_20': float,  # desc
+     'sand_50': float,  # desc
+     'sand_100': float,  # desc
+     'clay_5': float,  # desc
+     'clay_20': float,  # desc
+     'clay_50': float,  # desc
+     'clay_100': float,  # desc
+     'kwfact': float,  # desc
+     'slope': float,  # desc
+     'slp_length': float,  # desc
+     'uslels': float,  # desc
+     'RZmax': float,  # desc
+     'sfac': float,  # desc
+     'rainfall': float,  # desc
+     'anetd': float,  # desc
+     'plntbeg': float,  # desc
+     'plntend': float,  # desc
+     'harvbeg': float,  # desc
+     'harvend': float,  # desc
+     'emrgbeg': float,  # desc
+     'emrgend': float,  # desc
+     'blmbeg': float,  # desc
+     'blmend': float,  # desc
+     'matbeg': float,  # desc
+     'matend': float,  # desc
+     'cfloatcp': float,  # desc
+     'covmax': float,  # desc
+     'amxdr': float,  # desc
+     'irr_pct': float,  # desc
+     'irr_type': float,  # desc
+     'deplallw': float,  # desc
+     'leachfrac': float,  # desc
+     'cropprac': float,  # desc
+     'uslep': float,  # desc
+     'cfact_fal': float,  # desc
+     'cfact_cov': float,  # desc
+     'ManningsN': float,  # desc
+     'overlay': float,  # desc
+     'MLRA': float  # desc
+     }
+
 if False:
     import cProfile
 
     cProfile.run('main()')
 else:
     main()
+

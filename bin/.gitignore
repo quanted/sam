@@ -1,2 +1,13 @@
-*
-!.gitignore
+Preprocessed/*
+!Preprocessed/.gitignore
+!Preprocessed/CondensedNHD/.gitignore
+!Preprocessed/FlowFiles/.gitignore
+!Preprocessed/InputMaps/.gitignore
+!Preprocessed/LakeFiles/.gitignore
+!Preprocessed/MetTables/.gitignore
+!Preprocessed/Navigators/.gitignore
+!Preprocessed/ScenarioMatrices/.gitignore
+!Preprocessed/Scenarios/.gitignore
+!Preprocessed/states/.gitignore
+!Preprocessed/Upstream/.gitignore
+!Results/.gitignore
