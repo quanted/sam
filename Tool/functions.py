@@ -842,7 +842,7 @@ def pesticide_to_water(pesticide_mass_soil, runoff, erosion, leaching, bulk_dens
 
 if __name__ == "__main__":
     import cProfile
-    from Tool.pesticide_calculator import main
+    from ubertool_ecorest.ubertool.ubertool.sam.Tool.pesticide_calculator import main
 
     if True:
         cProfile.run('main()')

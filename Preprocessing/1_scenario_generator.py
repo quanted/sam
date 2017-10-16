@@ -4,7 +4,7 @@ import math
 import pandas as pd
 import numpy as np
 from numba import njit
-from Tool.functions import MemoryMatrix
+from ubertool_ecorest.ubertool.ubertool.sam.Tool.functions import MemoryMatrix
 
 
 class InputMatrix(pd.DataFrame):
