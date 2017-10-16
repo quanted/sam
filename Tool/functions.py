@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 
 from tempfile import mkdtemp
-from collections import namedtuple
 from json import encoder
 from numba import guvectorize, njit
 
@@ -197,7 +196,6 @@ class InputFile(object):
 
         # Crops
         self.crops = set(self.applications[:, 0])
-        self.all_crops = set(map(str, crop_groups.get(crop, [])) for crop in self.crops)
 
         # Set dates
         self.dates = pd.date_range(self.sim_date_start, self.sim_date_end)
@@ -212,7 +210,17 @@ class InputFile(object):
         self.irf = None if not time_of_travel.gamma_convolve else ImpulseResponseMatrix(self.dates.size)
 
         # Initialize output directory
-        self.token = self.csrfmiddlewaretoken
+        try:
+            self.token = self.csrfmiddlewaretoken
+        except AttributeError:
+            print("No token provided: output will be written to directory \'dummy\'")
+            self.token = 'dummy'
+
+        # To be added to front en
+        self.write_contributions = True
+        self.write_exceedances = True
+        self.write_time_series = True
+
 
 class Navigator(object):
     def __init__(self, region_id, upstream_path):
@@ -277,8 +285,9 @@ class RecipeMap(MemoryMatrix):
 
 
 class Recipes(object):
-    def __init__(self, i, year, region, scenario_matrix, output_path, write_list=set()):
+    def __init__(self, i, o, year, region, scenario_matrix, output_path, write_list=set()):
         self.i = i
+        self.o = o
         self.year = year
         self.region = region
         self.output_dir = os.path.join(output_path, i.token)
@@ -287,22 +296,7 @@ class Recipes(object):
         self.recipe_ids = sorted(region.active_reaches)
         self.outlets = set(self.recipe_ids) & set(self.region.lake_table.outlet_comid)
 
-        self.diagnostic = [0, 0, 0, 0]
-
         self.processed_count = 0
-
-        # Initialize output matrices
-        self.output_fields = ['total_flow', 'total_runoff', 'total_mass', 'total_conc', 'benthic_conc']
-        if self.write_list:
-            self.time_series = MemoryMatrix(self.write_list, len(self.output_fields), self.i.n_dates, name="output")
-        else:
-            self.time_series = None
-
-        # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
-        self.exceedances = MemoryMatrix(self.recipe_ids, self.i.endpoints.shape[0], name="exceed")
-
-        # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
-        self.contributions = np.zeros((4, 255))
 
         # Initialize local matrix: matrix of local runoff and mass, for rapid internal recall
         self.local = MemoryMatrix(self.recipe_ids, 2, self.i.n_dates, name="recipe")
@@ -333,15 +327,6 @@ class Recipes(object):
                 # Add all lake mass and runoff to outlet
                 self.local.update(lake.outlet_comid, np.array([new_mass, new_runoff]))
 
-    def calculate_contributions(self, scenarios, time_series):
-        """ Sum the total contribution by land cover class and add to running total """
-
-        scenarios = np.array(scenarios)
-        scenario_names = self.scenario_matrix.scenarios[scenarios]
-        classes = [name.split("cdl")[1] for name in scenario_names]
-        for i in range(4):  # Runoff, Erosion, Runoff Mass, Erosion Mass
-            self.contributions[i] += np.bincount(classes, weights=time_series[i], minlength=255)
-
     def fetch_scenarios(self, recipe_id):
         try:
             data = self.region.recipe_map.fetch((recipe_id, self.year)).T
@@ -351,11 +336,11 @@ class Recipes(object):
         else:
             # Fetch all scenarios and multiply by area.  For erosion, area is adjusted.
             # JCH - processing time here is 50/50 on fetch_multiple and math operations
+            # (scenarios, vars, dates)
             array = self.scenario_matrix.processed_matrix.fetch_multiple(scenarios, copy=True, aliased=False)
             array = np.rollaxis(array, 0, 3)
             array[:2] *= areas  # runoff, runoff_mass.
             array[2:] *= np.power(areas / 10000., .12)  # erosion, erosion_mass
-
             return scenarios, array  # (var, date, scenario)
 
     def local_loading(self, recipe_id, cumulative, process_benthic=False):
@@ -396,10 +381,11 @@ class Recipes(object):
 
             # Fetch time series data from all scenarios in re cipe
             scenarios, time_series = self.fetch_scenarios(recipe_id)  # (var, date, scenario)
+
             if scenarios is not None:
 
                 # Assess the contributions to the recipe from each source (runoff/erosion) and crop
-                self.calculate_contributions(scenarios, time_series.sum(axis=1))
+                self.o.update_contributions(recipe_id, scenarios, time_series[[1, 3]].sum(axis=1))
 
                 # Process local contributions
                 local_mass, local_runoff, benthic_conc = \
@@ -416,30 +402,10 @@ class Recipes(object):
 
                     if total_conc is not None:
                         # Calculate exceedances
-                        self.update_exceedances(recipe_id, total_conc)
+                        self.o.update_exceedances(recipe_id, total_conc)
 
                         # Store results in output array
-                        self.update_output(recipe_id, total_flow, total_runoff, total_mass, total_conc, benthic_conc)
-
-
-    def update_exceedances(self, recipe_id, concentration):
-        durations, endpoints = self.i.endpoints[["duration", "endpoint"]].as_matrix().T
-        years = self.i.year - self.i.year[0]
-        exceed = exceedance_probability(concentration, *map(np.int16, (durations, endpoints, years)))
-        self.exceedances.update(recipe_id, exceed)
-
-    def update_output(self, recipe_id, total_flow=None, total_runoff=None, total_mass=None, total_conc=None,
-                      benthic_conc=None):
-
-        writer = self.time_series.writer
-        index = self.time_series.index.index(recipe_id)
-
-        # This must match self.fields as designated in __init__
-        rows = [total_flow, total_runoff, total_mass, total_conc, benthic_conc]
-        for i, row in enumerate(rows):
-            if row is not None:
-                writer[index, i] = row
-        del writer
+                        self.o.update_time_series(recipe_id, total_flow, total_runoff, total_mass, total_conc, benthic_conc)
 
     def upstream_loading(self, reach):
         def confine_reaches():
@@ -479,62 +445,6 @@ class Recipes(object):
         else:
             return None, None, None, None
 
-    def write_contributions(self):
-        out_file = os.path.join(self.output_dir, "{}_contributions.csv".format(self.i.chemical_name))
-        active_crops = np.where(self.contributions.sum(axis=0) > 0)[0]
-        df = pd.DataFrame(data=self.contributions[:, active_crops].T, index=active_crops,
-                          columns=["Runoff (m3)", "Erosion (kg)", "Runoff Mass (kg)", "Erosion Mass (kg)"])
-        df.to_csv(out_file)
-
-    def write_time_series(self, fields='all'):
-        if fields == 'all':
-            fields = self.output_fields
-            field_indices = np.arange(len(self.output_fields))
-        else:
-            field_indices = [self.output_fields.index(field) for field in fields]
-
-        heading_lookup = {'runoff_conc': 'RunoffConc(ug/L)',
-                          'local_runoff': 'LocalRunoff(m3)',
-                          'total_runoff': 'TotalRunoff(m3)',
-                          'local_mass': 'LocalMass(m3)',
-                          'total_flow': 'TotalFlow(m3)',
-                          'baseflow': 'Baseflow(m3)',
-                          'total_conc': 'TotalConc(ug/L)',
-                          'total_mass': 'TotalMass(kg)',
-                          'wc_conc': 'WC_Conc(ug/L)',
-                          'erosion': 'Erosion(kg)',
-                          'erosion_mass': 'ErodedMass(kg)',
-                          'runoff_mass': 'RunoffMass(kg)',
-                          'benthic_conc': 'BenthicConc(ug/L)'}
-
-        headings = [heading_lookup.get(field, "N/A") for field in fields]
-
-        for recipe_id in self.write_list:
-            out_file = os.path.join(self.output_dir, "time_series_{}.csv".format(recipe_id))
-            out_data = self.time_series.fetch(recipe_id)[field_indices].T
-            df = pd.DataFrame(data=out_data, index=self.i.dates, columns=headings)
-            df.to_csv(out_file)
-
-    def write_exceedances(self):
-        encoder.FLOAT_REPR = lambda o: format(o, '.4f')
-        out_file = os.path.join(self.output_dir, "{}_exceedances.csv".format(self.i.chemical_name))
-        out_json = {"COMID": {}}
-        for recipe_id in self.exceedances.index:
-            exceedances = self.exceedances.fetch(recipe_id)
-            out_json["COMID"][str(recipe_id)] = dict(zip(self.i.endpoints.short_name, map(float, exceedances)))
-        out_json = json.dumps(out_json, sort_keys=True, indent=4, separators=(',', ': '))
-        with open(out_file, 'w') as f:
-            f.write(out_json)
-
-    def write_output(self):
-
-        if not os.path.isdir(self.output_dir):
-            os.makedirs(self.output_dir)
-
-        self.write_exceedances()
-        self.write_contributions()
-        self.write_time_series()
-
 
 class Scenarios(object):
     def __init__(self, i, input_memmap_path, retain=None):
@@ -543,7 +453,7 @@ class Scenarios(object):
         self.keyfile_path = input_memmap_path + "_key.txt"
 
         # Load key file for interpreting input matrices
-        self.arrays, self.variables, self.scenarios, self.array_shape, self.variable_shape, \
+        self.arrays, self.variables, self.names, self.array_shape, self.variable_shape, \
         self.start_date, self.n_dates = self.load_key()
 
         # Calculate date offsets
@@ -551,17 +461,17 @@ class Scenarios(object):
         self.start_offset, self.end_offset = self.date_offsets()
 
         # Initialize input matrices
-        self.array_matrix = MemoryMatrix(self.scenarios, len(self.arrays), self.n_dates, self.path,
+        self.array_matrix = MemoryMatrix(self.names, len(self.arrays), self.n_dates, self.path,
                                          self.base + "_arrays", name="arrays", input_only=True)
-        self.variable_matrix = MemoryMatrix(self.scenarios, len(self.variables), path=self.path,
+        self.variable_matrix = MemoryMatrix(self.names, len(self.variables), path=self.path,
                                             base=self.base + "_vars", name="variables", input_only=True)
 
         # Initialize empty matrix for procesed scenarios
         if retain is not None:
-            self.processed_matrix = MemoryMatrix(self.scenarios, 4, i.dates.size, path=self.path, base=retain,
+            self.processed_matrix = MemoryMatrix(self.names, 4, i.dates.size, path=self.path, base=retain,
                                                  name="scenario", overwrite=False)
         else:
-            self.processed_matrix = MemoryMatrix(self.scenarios, 4, i.dates.size, name="scenario")
+            self.processed_matrix = MemoryMatrix(self.names, 4, i.dates.size, name="scenario")
 
         # Populate scenario matrix if it doesn't exist
         if self.processed_matrix.new:
@@ -597,11 +507,11 @@ class Scenarios(object):
         processed_writer = self.processed_matrix.writer
 
         # Iterate scenarios
-        for n, scenario_id in enumerate(self.scenarios):
+        for n, scenario_id in enumerate(self.names):
 
             # Report progress and reset readers/writers at intervals
             if not (n + 1) % progress_interval:
-                print("{}/{}".format(n + 1, len(self.scenarios)))
+                print("{}/{}".format(n + 1, len(self.names)))
 
             # Open and close read/write cursors at intervals. This seems to help
             if not n % chunk:
@@ -611,12 +521,8 @@ class Scenarios(object):
                     processed_writer = self.processed_matrix.writer
 
             # Get crop ID of scenario and find all associated crops in group
-            crop = scenario_id.split("cdl")[1]
-            all_crops = {crop} | set(map(str, crop_groups.get(crop, [])))
-            active_crops = np.int32(sorted(self.i.crops & all_crops))
-
-            # If the scenario has pesticide applied, simulate application and transport
-            if active_crops.any():
+            crop = int(scenario_id.split("cdl")[1])
+            if crop in self.i.crops:
 
                 # Extract arrays
                 leaching, runoff, erosion, soil_water, plant_factor, rain = \
@@ -634,7 +540,7 @@ class Scenarios(object):
 
                 # Calculate the daily input of pesticide to the soil and plant canopy
                 application_mass = \
-                    pesticide_to_field(self.i.applciations, self.i.new_year, active_crops, plant_dates, rain)
+                    pesticide_to_field(self.i.applications, self.i.new_year, crop, plant_dates, rain)
 
                 # Calculate the daily mass of pesticide in the soil
                 pesticide_mass_soil = pesticide_to_soil(application_mass, rain, plant_factor, soil.cm_2,
@@ -647,12 +553,134 @@ class Scenarios(object):
                                        soil.soil_depth)
 
                 # Write runoff, erosion, runoff mass and erosion mass to processed matrix
-                processed_writer[n] = runoff, erosion, runoff_mass, erosion_mass
+                processed_writer[n] = runoff, runoff_mass, erosion, erosion_mass
+
             else:
                 # Write runoff and erosion
-                processed_writer[n, :2] = array_reader[n][1:3, self.start_offset:self.end_offset]
+                processed_writer[n, [0, 2]] = array_reader[n][1:3, self.start_offset:self.end_offset]
 
         del array_reader, variable_reader
+
+
+class Outputs(object):
+    def __init__(self, i, recipe_ids, scenario_ids, output_path, write_list=[]):
+        self.i = i
+        self.recipe_ids = sorted(recipe_ids)
+        self.scenario_ids = scenario_ids
+        self.output_dir = os.path.join(output_path, i.token)
+        self.write_list = write_list
+
+        # Initialize output JSON dict
+        self.out_json = {}
+
+        # Initialize output matrices
+        self.output_fields = ['total_flow', 'total_runoff', 'total_mass', 'total_conc', 'benthic_conc']
+        if self.write_list:
+            self.time_series = \
+                MemoryMatrix(sorted(self.write_list), len(self.output_fields), self.i.n_dates, name="output")
+        else:
+            self.i.write_time_series = False
+            self.time_series = None
+
+        # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
+        self.exceedances = MemoryMatrix(self.recipe_ids, self.i.endpoints.shape[0], name="exceed")
+
+        # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
+        self.contributions = MemoryMatrix(self.recipe_ids, 2, len(self.i.crops), name="contributions")
+        self.contributions.columns = np.int32(sorted(self.i.crops))
+        self.contributions.labels = ["cls" + str(c) for c in self.contributions.columns]
+
+    def update_contributions(self, recipe_id, scenario_index, loads):
+        """ Sum the total contribution by land cover class and add to running total """
+
+        scenario_names = self.scenario_ids[scenario_index]
+        classes = [int(name.split("cdl")[1]) for name in scenario_names]
+        contributions = np.zeros((2, 255))
+        for i in range(2):  # Runoff Mass, Erosion Mass
+            contributions[i] += np.bincount(classes, weights=loads[i], minlength=255)
+        self.contributions.update(recipe_id, contributions[:, self.contributions.columns])
+
+    def update_exceedances(self, recipe_id, concentration):
+        durations, endpoints = self.i.endpoints[["duration", "endpoint"]].as_matrix().T
+        years = self.i.year - self.i.year[0]
+        exceed = exceedance_probability(concentration, *map(np.int16, (durations, endpoints, years)))
+        self.exceedances.update(recipe_id, exceed)
+
+    def update_time_series(self, recipe_id, total_flow=None, total_runoff=None, total_mass=None, total_conc=None,
+                           benthic_conc=None):
+
+        writer = self.time_series.writer
+        index = self.time_series.index.index(recipe_id)
+
+        # This must match self.fields as designated in __init__
+        rows = [total_flow, total_runoff, total_mass, total_conc, benthic_conc]
+        for i, row in enumerate(rows):
+            if row is not None:
+                writer[index, i] = row
+        del writer
+
+    def write_json(self, write_exceedances=False, write_contributions=False):
+
+        encoder.FLOAT_REPR = lambda o: format(o, '.4f')
+        out_file = os.path.join(self.output_dir, "{}_json.csv".format(self.i.chemical_name))
+        out_json = {"COMID": {}}
+        for recipe_id in self.recipe_ids:
+            out_json["COMID"][str(recipe_id)] = {}
+            if write_exceedances:
+                exceedance_dict = dict(zip(self.i.endpoints.short_name, map(float, self.exceedances.fetch(recipe_id))))
+                out_json["COMID"][str(recipe_id)].update(exceedance_dict)
+            if write_contributions:
+                contributions = self.contributions.fetch(recipe_id)
+                for i, category in enumerate(("runoff", "erosion")):
+                    labels = ["{}_load_{}".format(category, label) for label in self.contributions.labels]
+                    contribution_dict = dict(zip(labels, map(float, contributions[i])))
+                    out_json["COMID"][str(recipe_id)].update(contribution_dict)
+
+        out_json = json.dumps(dict(out_json), sort_keys=True, indent=4, separators=(',', ': '))
+        with open(out_file, 'w') as f:
+            f.write(out_json)
+
+    def write_output(self):
+
+        # Create output directory
+        if not os.path.isdir(self.output_dir):
+            os.makedirs(self.output_dir)
+
+        # Write JSON output
+        self.write_json(self.i.write_exceedances, self.i.write_contributions)
+
+        # Write time series
+        if self.i.write_time_series:
+            self.write_time_series()
+
+    def write_time_series(self, fields='all'):
+        if fields == 'all':
+            fields = self.output_fields
+            field_indices = np.arange(len(self.output_fields))
+        else:
+            field_indices = [self.output_fields.index(field) for field in fields]
+
+        heading_lookup = {'runoff_conc': 'RunoffConc(ug/L)',
+                          'local_runoff': 'LocalRunoff(m3)',
+                          'total_runoff': 'TotalRunoff(m3)',
+                          'local_mass': 'LocalMass(m3)',
+                          'total_flow': 'TotalFlow(m3)',
+                          'baseflow': 'Baseflow(m3)',
+                          'total_conc': 'TotalConc(ug/L)',
+                          'total_mass': 'TotalMass(kg)',
+                          'wc_conc': 'WC_Conc(ug/L)',
+                          'erosion': 'Erosion(kg)',
+                          'erosion_mass': 'ErodedMass(kg)',
+                          'runoff_mass': 'RunoffMass(kg)',
+                          'benthic_conc': 'BenthicConc(ug/L)'}
+
+        headings = [heading_lookup.get(field, "N/A") for field in fields]
+
+        for recipe_id in self.write_list:
+            out_file = os.path.join(self.output_dir, "time_series_{}.csv".format(recipe_id))
+            out_data = self.time_series.fetch(recipe_id)[field_indices].T
+            df = pd.DataFrame(data=out_data, index=self.i.dates, columns=headings)
+            df.to_csv(out_file)
 
 
 @njit
@@ -723,27 +751,26 @@ def impulse_response_function(alpha, beta, length):
 
 
 @njit
-def pesticide_to_field(applications, new_years, active_crops, event_dates, rain):
+def pesticide_to_field(applications, new_years, active_crop, event_dates, rain):
     """ Simulate timing of pesticide appplication to field """
 
     application_mass = np.zeros((2, rain.size))
     for i in range(applications.shape[0]):
         crop, event, offset, canopy, step, window1, pct1, window2, pct2, effic, rate = applications[i]
-        event_date = int(event_dates[int(event)])
-        for j in range(active_crops.size):
-            if active_crops[j] == crop:
-                daily_mass_1 = rate * (pct1 / 100.) / window1
+        if crop == active_crop:
+            event_date = int(event_dates[int(event)])
+            daily_mass_1 = rate * (pct1 / 100.) / window1
+            if step:
+                daily_mass_2 = rate * (pct2 / 100.) / window2
+            for year in range(new_years.size):
+                new_year = new_years[year]
+                for k in range(int(window1)):
+                    date = int(new_year + event_date + offset + k)
+                    application_mass[int(canopy), date] = daily_mass_1
                 if step:
-                    daily_mass_2 = rate * (pct2 / 100.) / window2
-                for year in range(new_years.size):
-                    new_year = new_years[year]
-                    for k in range(int(window1)):
-                        date = int(new_year + event_date + offset + k)
-                        application_mass[int(canopy), date] = daily_mass_1
-                    if step:
-                        for l in range(window2):
-                            date = int(new_year + event_date + window1 + offset + l)
-                            application_mass[int(canopy), date] = daily_mass_2
+                    for l in range(window2):
+                        date = int(new_year + event_date + window1 + offset + l)
+                        application_mass[int(canopy), date] = daily_mass_2
     return application_mass
 
 

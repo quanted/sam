@@ -1,24 +1,18 @@
-import pandas as pd
-import datetime
+import numpy as np
 
+a = b = np.arange(9).reshape(3, 3)
+c = np.zeros(3)
 
-file = r"..\bin\Preprocessed\ScenarioMatrices\IN_scenarios_agg_101017.txt"
+for x in range(3):
+    c[x] = np.average(b[np.where(a < x + 3)])
 
-with open(file) as f:
-    a = next(f).split(",")
-    b = next(f).split(",")
+print(c)
 
-for pair in sorted(zip(a, b)):
-    print(pair)
+a = b = np.arange(9).reshape(3, 3)
+c = np.zeros(3)
+i = np.arange(3)
 
-
-
-
-
-
-
-
-
-
-
-
+d = b[np.where(a < (i + 3))]
+print(d)
+c[i] = np.average(b[np.where(a < (i + 3))])
+print(c)

@@ -112,6 +112,7 @@ class InputDict(dict):
             self[field] = data_type(self[field])
 
     def process_applications(self):
+        from Tool.parameters import crop_groups
         # Process application matrix
         applications = []
         for i in range(int(self['napps'])):
@@ -119,8 +120,9 @@ class InputDict(dict):
             app = [self.pop("{}_{}".format(field, i + 1), default[field_type])
                    for field, field_type in self.application_fields]
             if " " in app[0]:  # crop must be first
-                crops = app[0].split()
-                for crop in crops:
+                crops = set(map(int, (app[0].split())))
+                all_crops = crops | {c for c in crop_groups.get(crop, set()) for crop in crops}
+                for crop in all_crops:
                     applications.append([crop] + app[1:])
             else:
                 applications.append(app)
