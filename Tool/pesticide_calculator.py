@@ -37,6 +37,7 @@ def pesticide_calculator(input_data):
                 recipes.burn_reservoir(lake, reaches)
 
         # Write output
+        print("Writing output...")
         outputs.write_output()
 
 

@@ -707,13 +707,17 @@ def compute_concentration(transported_mass, runoff, n_dates, q):
 
 
 def confine_regions(nhd_regions, map_path, write_list):
-    """ Determine which NHD regions need to be run to process the specified reacches """
+    """ Determine which NHD regions need to be run to process the specified reaches """
+    print("In confine_regions...")
     # write_list is a set of all reaches to be processed
     if write_list is not None:
         active_regions = set()
         for region in nhd_regions:
+            print(region)
             region_map = os.path.join(map_path, "region_{}_key.npy".format(region))
+            print(region_map)
             if os.path.exists(region_map):
+                print("region added")
                 reaches = set(np.load(region_map).T[0])
                 if any(set(write_list) & reaches):
                     active_regions.add(region)
