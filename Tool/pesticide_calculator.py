@@ -42,10 +42,10 @@ def pesticide_calculator(input_data):
 
 def main(input_data=None):
     if input_data is None:
-        from Tool.chemicals import atrazine as input_data
+        from ..Tool.chemicals import atrazine as input_data
     pesticide_calculator(input_data)
 
 
 if __name__ == "__main__":
-    from Tool.chemicals import atrazine
+    from ..Tool.chemicals import atrazine
     main(atrazine)

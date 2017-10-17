@@ -360,7 +360,7 @@ class Recipes(object):
 
     def partition_benthic(self, recipe_id, erosion, erosion_mass):
 
-        from Tool.parameters import benthic
+        from ..Tool.parameters import benthic
 
         surface_area = self.region.flow_file.loc[recipe_id]["surface_area"]
         soil_volume = benthic.depth * surface_area
