@@ -1,7 +1,9 @@
 from __future__ import division
 import numpy as np
 import pandas as pd
-from ubertool_ecorest.ubertool.ubertool.base.uber_model import UberModel, ModelSharedInputs
+from ..base.uber_model import UberModel, ModelSharedInputs
+
+# from ubertool_ecorest.ubertool.ubertool.base.uber_model import UberModel, ModelSharedInputs
 
 
 class SamInputs(ModelSharedInputs):
