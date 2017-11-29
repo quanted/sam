@@ -1,8 +1,11 @@
 from Tool.parameters import paths as p
-from Tool.functions import InputParams, Hydroregion, Scenarios, Recipes, Outputs
+from Tool.functions import InputParams, Hydroregion, Scenarios, Recipes, Outputs, initialize
 
 
 def pesticide_calculator(input_data):
+
+    # Initialize file structure
+    initialize()
 
     # Initialize parameters from front end
     inputs = InputParams(input_data)
@@ -12,7 +15,7 @@ def pesticide_calculator(input_data):
 
         # Simulate application of pesticide to all input scenarios
         print("Processing scenarios...")
-        scenarios = Scenarios(inputs, p.input_scenario_path, retain="onze")  # retain="onze"
+        scenarios = Scenarios(inputs, p.input_scenario_path)  # retain="onze"
 
         # Load watershed topology maps and account for necessary files
         print("Processing hydroregion {}...".format(region_id))
@@ -43,10 +46,10 @@ def pesticide_calculator(input_data):
 
 def main(input_data=None):
     if input_data is None:
-        from ..Tool.chemicals import atrazine as input_data
+        from Tool.chemicals import atrazine_demo as input_data
     pesticide_calculator(input_data)
 
 
 if __name__ == "__main__":
-    from ..Tool.chemicals import atrazine
-    main(atrazine)
+    from Tool.chemicals import atrazine_demo
+    main(atrazine_demo)

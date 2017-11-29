@@ -735,6 +735,19 @@ class Outputs(object):
             df.to_csv(out_file)
 
 
+def initialize():
+    # Make sure needed subdirectories exist
+    preexisting_subdirs = ["Results", "temp"]
+    for subdir in preexisting_subdirs:
+        if not os.path.exists(os.path.join("..", subdir)):
+            os.mkdir(subdir)
+
+    # Purge temp folder
+    temp_folder = os.path.join("..", "temp")
+    for f in os.listdir(temp_folder):
+        os.remove(os.path.join(temp_folder, f))
+
+
 @njit
 def benthic_loop(eroded_soil, erosion_mass, soil_volume):
     benthic_mass = np.zeros(erosion_mass.size, dtype=np.float32)
