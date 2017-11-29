@@ -414,7 +414,7 @@ class Recipes(object):
     def partition_benthic(self, recipe_id, erosion, erosion_mass):
         """ Compute concentration in the benthic layer based on mass of eroded sediment """
 
-        from Tool.parameters import benthic
+        from ..Tool.parameters import benthic
 
         surface_area = self.region.flow_file.loc[recipe_id]["surface_area"]
         soil_volume = benthic.depth * surface_area
@@ -877,7 +877,7 @@ def pesticide_to_water(pesticide_mass_soil, runoff, erosion, leaching, bulk_dens
 
 if __name__ == "__main__":
     import cProfile
-    from Tool.pesticide_calculator import main
+    from ubertool_ecorest.ubertool.ubertool.sam.Tool.pesticide_calculator import main
 
     if False:
         cProfile.run('main()')
