@@ -28,7 +28,8 @@ def max_scenarios(local_sets):
 
 
 def make_table(local_sets, outfile, scenario_matrix, n_scenarios):
-    # Read scenario matrix keyfile so that scenario indices match up between matrix and map
+    """ Read scenario matrix keyfile so that scenario indices match up between matrix and map """
+
     matrix_key = scenario_matrix + "_key.txt"
     with open(matrix_key) as f:
         *_, scenarios = (next(f).strip().split(",") for _ in range(3))
@@ -64,7 +65,7 @@ def make_table(local_sets, outfile, scenario_matrix, n_scenarios):
 
 def main():
     scenario_matrix = r"..\bin\Preprocessed\Scenarios\mark_twain"
-    recipe_path = r"..\bin\Preprocessed\Recipes\MTB\nhd_recipe_{}_{}.txt"
+    recipe_path = r"..\bin\Preprocessed\Recipes\recipes_{}cdl_{}.txt"
     output_file = os.path.join(r"..\bin\Preprocessed\InputMaps", "mtb_map1")
 
     # Identify all recipe files, indexed by recipe ID and year

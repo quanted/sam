@@ -79,21 +79,17 @@ class OutputMatrix(object):
     def __init__(self, in_matrix, met, output_memmap):
         self.met = met
         self.in_matrix = in_matrix
-        self.dir, self.name = os.path.split(output_memmap)
         self.arrays = ['leaching', 'runoff', 'erosion', 'soil_water', 'plant_factor', 'rain']
-        self.variables = ['covmax', 'org_carbon', 'bulk_density',
-                          'plant_beg', 'harvest_beg', 'emerg_beg', 'bloom_beg', 'mat_beg', 'overlay']
+        self.variables = ['covmax', 'org_carbon', 'bulk_density', 'overlay',
+                          'plant_beg', 'harvest_beg', 'emerg_beg', 'bloom_beg', 'mat_beg']
 
         # Initalize matrices
-        self.array_matrix = MemoryMatrix(self.in_matrix.scenario, len(self.arrays), self.met.n_dates,
-                                         name=self.name + "_arrays", path=self.dir)
-
-        self.variable_matrix = MemoryMatrix(self.in_matrix.scenario, len(self.variables),
-                                            name=self.name + "_vars", path=self.dir)
+        self.array_matrix = MemoryMatrix([self.in_matrix.scenario, self.arrays, self.met.n_dates],
+                                         path=output_memmap + "_arrays")
+        self.variable_matrix = MemoryMatrix([self.in_matrix.scenario, self.variables], path=output_memmap + "_vars")
 
         # Create key
         self.create_keyfile()
-
         self.populate()
 
     def create_keyfile(self):
