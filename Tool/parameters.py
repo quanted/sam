@@ -1,5 +1,4 @@
 import os
-from ..Tool.outlet_ids import mtb_monitoring
 
 
 class ParameterSet(object):
@@ -12,7 +11,6 @@ class ParameterSet(object):
 # Preprocessed data repositories
 path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, "bin"))
 path_params = {
-
     # Points to the output of the scenario_generator.py
     "input_scenario_path": os.path.join(path, "Preprocessed", "Scenarios", "mtb0731"),
     "map_path": os.path.join(path, "Preprocessed", "InputMaps"),
@@ -20,9 +18,9 @@ path_params = {
     "flow_dir": os.path.join(path, "Preprocessed", "FlowFiles"),
     "lakefile_path": os.path.join(path, "Preprocessed", "LakeFiles"),
     "upstream_path": os.path.join(path, "Preprocessed", "Navigators"),
+    "drinking_water_intakes": os.path.join(path, "Preprocessed", "Intakes", "intake_locations.csv"),
+    "manual_intakes": os.path.join(path, "Preprocessed", "Intakes", "mtb_intakes.csv")
 }
-
-write_list = mtb_monitoring
 
 """ Parameters below are hardwired model parameters """
 

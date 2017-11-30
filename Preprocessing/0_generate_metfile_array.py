@@ -25,9 +25,9 @@ class MetfileMatrix(MemoryMatrix):
                     (date(*map(int, (data.iloc[i].Year, data.iloc[i].Month, data.iloc[i].Day))) for i in [0, -1])
                 self.start_offset = (self.start_date - self.file_start_date).days
                 self.end_date = self.file_end_date
-                super(MetfileMatrix, self).__init__(self.metfile_ids, (self.file_end_date - self.start_date).days + 1,
-                                                    3,
-                                                    path=memmap_path, name="metfile", dtype=np.float32)
+                super(MetfileMatrix, self).__init__(
+                    [self.metfile_ids, (self.file_end_date - self.start_date).days + 1, 3],
+                    path=memmap_path, dtype=np.float32)
             out_rows = data.as_matrix()[self.start_offset:, 3:]
             self.update(grid_id, out_rows)
 

@@ -182,4 +182,5 @@ class Sam(UberModel, SamInputs, SamOutputs):
 
     def execute_model(self):
         from .Tool.pesticide_calculator import pesticide_calculator
+
         outputs = pesticide_calculator(self.input_dict)
