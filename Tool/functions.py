@@ -196,7 +196,8 @@ class InputParams(object):
     """
 
     def __init__(self, input_dict):
-        from Tool.parameters import time_of_travel
+        # from Tool.parameters import time_of_travel
+        from .parameters import time_of_travel
 
         # Read input dictionary
         self.__dict__.update(input_dict)
@@ -214,7 +215,7 @@ class InputParams(object):
         self.n_dates = len(self.dates)
         self.year_index = self.dates.year - self.dates.year[0]
         self.month_index = self.dates.month - 1
-        self.unique_years, self.year_length = np.unique(self.year, return_counts=True)
+        self.unique_years, self.year_length = np.unique(self.year_index, return_counts=True)
         self.new_year = np.int32([(np.datetime64("{}-01-01".format(year)) - self.sim_date_start).astype(int)
                                   for year in self.unique_years])
 
@@ -239,7 +240,8 @@ class InputParams(object):
 
     def processing_extent(self):
         """ Determine which NHD regions need to be run to process the specified reacches """
-        from Tool.parameters import nhd_regions, paths as p
+        #from Tool.parameters import nhd_regions, paths as p
+        from .parameters import nhd_regions, paths as p
 
         assert self.sim_type in ('eco', 'drinking_water', 'manual'), \
             "Invalid simulation type '{}'".format(self.sim_type)
@@ -738,14 +740,20 @@ class Outputs(object):
 def initialize():
     # Make sure needed subdirectories exist
     preexisting_subdirs = ["Results", "temp"]
-    for subdir in preexisting_subdirs:
-        if not os.path.exists(os.path.join("..", subdir)):
-            os.mkdir(subdir)
+    try:
+        for subdir in preexisting_subdirs:
+            if not os.path.exists(os.path.join("..", subdir)):
+                os.mkdir(subdir)
+    except FileExistsError as ex:
+        print("SAM functions temp file create error: Required subdirectories already exist. " + str(ex))
 
     # Purge temp folder
-    temp_folder = os.path.join("..", "temp")
-    for f in os.listdir(temp_folder):
-        os.remove(os.path.join(temp_folder, f))
+    try:
+        temp_folder = os.path.join("..", "temp")
+        for f in os.listdir(temp_folder):
+            os.remove(os.path.join(temp_folder, f))
+    except FileNotFoundError as ex:
+        print("SAM functions temp purge error: No temp files found. " + str(ex))
 
 
 @njit

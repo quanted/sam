@@ -1,5 +1,7 @@
-from Tool.parameters import paths as p
-from Tool.functions import InputParams, Hydroregion, Scenarios, Recipes, Outputs, initialize
+# from Tool.parameters import paths as p
+# from Tool.functions import InputParams, Hydroregion, Scenarios, Recipes, Outputs, initialize
+from .parameters import paths as p
+from .functions import InputParams, Hydroregion, Scenarios, Recipes, Outputs, initialize
 
 
 def pesticide_calculator(input_data):
@@ -46,10 +48,12 @@ def pesticide_calculator(input_data):
 
 def main(input_data=None):
     if input_data is None:
-        from Tool.chemicals import atrazine_demo as input_data
+        # from Tool.chemicals import atrazine_demo as input_data
+        from .chemicals import atrazine_demo as input_data
     pesticide_calculator(input_data)
 
 
 if __name__ == "__main__":
-    from Tool.chemicals import atrazine_demo
+    # from Tool.chemicals import atrazine_demo
+    from .chemicals import atrazine_demo
     main(atrazine_demo)
