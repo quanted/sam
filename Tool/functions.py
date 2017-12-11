@@ -15,7 +15,7 @@ from numba import guvectorize, njit
 class MemoryMatrix(object):
     """ A wrapper for NumPy 'memmap' functionality which allows the storage and recall of arrays from disk """
 
-    def __init__(self, dimensions, dtype=np.int32, path=None, existing=False):
+    def __init__(self, dimensions, dtype=np.float32, path=None, existing=False):
         self.dtype = dtype
         self.path = path
         self.existing = existing
@@ -34,22 +34,25 @@ class MemoryMatrix(object):
             output = array[index if aliased else self.lookup.get(index)]
         except IndexError:
             if verbose:
-                print("{} not found".format(get_index))
+                print("{} not found".format(index))
             output = None
         del array
         return output
 
     def initialize_array(self):
 
-        # Load from saved file if one is specified, else generate
-        if self.path is None:
-            self.path = mkstemp(suffix=".dat", dir=os.path.join("..", "bin", "temp"))[1]
-
         # Raise an error if there should be an existing matrix but isn't
-        if self.existing and not os.path.exists(self.path):
-            raise Exception('Specified MemoryMatrix {} not found'.format(self.path))
-        elif not self.existing:
-            np.memmap(self.path, dtype=self.dtype, mode='w+', shape=self.shape)  # Allocate memory
+        if self.existing:  #
+            if not os.path.exists(self.path):
+                raise Exception('Specified MemoryMatrix {} not found'.format(self.path))
+
+        # If a path is given but not expected to exist, create a matrix at that location.
+        # Otherwise, use a temporary file
+        else:
+            if self.path is None:
+                self.path = mkstemp(suffix=".dat", dir=os.path.join("..", "bin", "temp"))[1]
+            if not os.path.exists(self.path):
+                np.memmap(self.path, dtype=self.dtype, mode='w+', shape=self.shape)  # Allocate memory
 
     def fetch_multiple(self, indices, copy=False, verbose=False, aliased=True, return_index=False, columns=None):
 
@@ -66,7 +69,7 @@ class MemoryMatrix(object):
             indices = addresses[found]
 
         # Fetch data from memory map
-        array = np.memmap(self.path, dtype='float32', mode='c' if copy else 'r', shape=self.shape)
+        array = np.memmap(self.path, dtype='float32', mode='c' if copy else 'r+', shape=self.shape)
         out_array = array[indices] if columns is None else array[np.ix_(indices, columns)]
         del array
 
@@ -86,7 +89,7 @@ class MemoryMatrix(object):
 
     @property
     def reader(self):
-        return np.memmap(self.path, dtype=self.dtype, mode='r', shape=self.shape)
+        return np.memmap(self.path, dtype=self.dtype, mode='r+', shape=self.shape)
 
     @property
     def copy(self):
@@ -126,8 +129,9 @@ class Hydroregion(object):
     Contains all datasets and functions related to the NHD Plus region, including all hydrological features and links
     """
 
-    def __init__(self, region, map_path, flowfile_dir, upstream_dir, lakefile_dir):
+    def __init__(self, region, map_path, flowfile_dir, upstream_dir, lakefile_dir, input_active='all'):
         self.id = region
+        self.input_active = input_active
 
         # Read hydrological input files
         self.flow_file = HydroTable(self.id, flowfile_dir)
@@ -140,11 +144,16 @@ class Hydroregion(object):
         self.run_reaches = set()
 
     def cascade(self):
+
+        from .parameters import time_of_travel as tot
+
         # Identify all outlets (and therefore, reservoirs) that exist in the current run scope
         confined_outlets = self.lake_table.outlet_comid.isin(self.active_reaches)
 
         # Confine lake table to these outlets and sort by number of upstream reservoirs
-        confined_lake_table = self.lake_table[confined_outlets].sort_values('n_upstream')
+        confined_lake_table = self.lake_table[confined_outlets]
+        confined_lake_table = confined_lake_table[confined_lake_table.residence_time >= tot.minimum_residence_time]
+        confined_lake_table.sort_values('n_upstream', inplace=True)
 
         # Loop through reservoirs in a downstream direction and process all upstream reaches
         for i, lake in confined_lake_table.iterrows():
@@ -158,14 +167,15 @@ class Hydroregion(object):
 
     def confine(self):
         # Recipe/reaches that are (1) in the upstream file and (2) have a recipe file in at least 1 yr
-        map_reaches = {reach_id for reach_id, _ in self.recipe_map.lookup.keys()}
+        map_reaches = {reach_id for reach_id, _ in self.recipe_map.map.keys()}
         region_reaches = self.nav.reach_ids
         active_reaches = map_reaches & region_reaches
+
+        # Trim active reaches to watershed upstream of input active
+        if self.input_active != 'all':
+            active_reaches &= \
+                {us for r in self.input_active for us in self.nav.upstream_watershed(r, return_times=False)[0]}
         active_reaches.discard(0)
-
-        # Identify full watershed extent of reaches and get matching lakes
-        # full_watershed = {us for r in active_reaches for us in self.upstream_watershed(r, return_times=False)}
-
         return active_reaches
 
 
@@ -196,7 +206,7 @@ class InputParams(object):
     """
 
     def __init__(self, input_dict):
-        from Tool.parameters import time_of_travel
+        from .parameters import time_of_travel
 
         # Read input dictionary
         self.__dict__.update(input_dict)
@@ -214,7 +224,7 @@ class InputParams(object):
         self.n_dates = len(self.dates)
         self.year_index = self.dates.year - self.dates.year[0]
         self.month_index = self.dates.month - 1
-        self.unique_years, self.year_length = np.unique(self.year, return_counts=True)
+        self.unique_years, self.year_length = np.unique(self.dates.year, return_counts=True)
         self.new_year = np.int32([(np.datetime64("{}-01-01".format(year)) - self.sim_date_start).astype(int)
                                   for year in self.unique_years])
 
@@ -239,7 +249,7 @@ class InputParams(object):
 
     def processing_extent(self):
         """ Determine which NHD regions need to be run to process the specified reacches """
-        from Tool.parameters import nhd_regions, paths as p
+        from .parameters import nhd_regions, paths as p
 
         assert self.sim_type in ('eco', 'drinking_water', 'manual'), \
             "Invalid simulation type '{}'".format(self.sim_type)
@@ -257,6 +267,7 @@ class InputParams(object):
                 active_reaches = sorted(np.unique(intakes.COMID))
             except AttributeError as e:
                 raise Exception("Invalid intake table: must have 'Region' and 'COMID' columns") from e
+
         # Run everything if running eco
         else:
             intakes = None
@@ -309,29 +320,31 @@ class Navigator(object):
             return reaches, adjusted_times, warning
 
 
-class RecipeMap(object):
-    def __init__(self, recipe_path, region_id):
+class RecipeMap(MemoryMatrix):
+    def __init__(self, region_id, recipe_path):
         self.region = region_id
         self.path = os.path.join(recipe_path, "region_{}".format(self.region))
         self.key_path = self.path + "_key.npz"
 
-        self.scenario_index, self.map, self.n_rows = self.load_key()
+        self.map, self.shape, self.scenarios = self.load_key()
 
     def load_key(self):
         data = np.load(self.key_path)
-        scenario_index, comid_table = data['index'], data['map']
+        scenario_index, comid_table, shape = data['scenarios'], data['map'], data['shape']
         comid_map = {(comid, year): (start_row, end_row) for year, comid, start_row, end_row in comid_table}
-        return scenario_index, comid_map, comid_table[-1, -1]
 
-    def fetch(self, comid, year):
+        return comid_map, tuple(shape), scenario_index
+
+    def fetch(self, comid, year, aliased=False, verbose=False):
         address = self.map.get((comid, year))
-        if address is None:
+        if address is None and verbose:
             print("Reach {} not found in recipe map for Region {}".format(comid, self.region))
-        else:
-            array = np.memmap(self.table_path, dtype=np.int32, mode='r', shape=(self.n_rows, 2))
+        elif address is not None:
+            array = np.memmap(self.path + ".dat", np.int32, shape=self.shape)
             start_row, end_row = address
             areas, aliases = array[start_row:end_row].T
-            scenario_ids = self.scenario_index[aliases]
+            scenario_ids = self.scenarios[aliases]
+            del array
             return scenario_ids, areas
 
 
@@ -380,7 +393,7 @@ class Recipes(object):
     def fetch_scenarios(self, recipe_id):
         """  Fetch all scenarios and multiply by area.  For erosion, area is adjusted. """
         try:
-            scenarios, areas = self.region.recipe_map.fetch(recipe_id, self.year).T
+            scenarios, areas = self.region.recipe_map.fetch(recipe_id, self.year, aliased=True).T
         except AttributeError:
             return None, None
         else:
@@ -414,7 +427,7 @@ class Recipes(object):
     def partition_benthic(self, recipe_id, erosion, erosion_mass):
         """ Compute concentration in the benthic layer based on mass of eroded sediment """
 
-        from ..Tool.parameters import benthic
+        from .parameters import benthic
 
         surface_area = self.region.flow_file.loc[recipe_id]["surface_area"]
         soil_volume = benthic.depth * surface_area
@@ -433,7 +446,7 @@ class Recipes(object):
             if not len(self.processed) % progress_interval:
                 print("Processed {} of {} recipes".format(len(self.processed), len(self.recipe_ids)))
 
-            # Fetch time series data from all scenarios in re cipe
+            # Fetch time series data from all scenarios in recipe
             scenarios, time_series = self.fetch_scenarios(recipe_id)  # (var, date, scenario)
 
             if scenarios is not None:
@@ -477,7 +490,6 @@ class Recipes(object):
             if index is not None:
                 reaches, times = reaches[index], times[index]
             totals = np.zeros((2, self.i.n_dates))  # (mass/runoff, dates)
-            print(2, reaches.shape, times.shape, mass_and_runoff.shape)
             for tank in range(np.max(times) + 1):
                 in_tank = mass_and_runoff[times == tank].sum(axis=0)
                 if tank > 0:
@@ -502,9 +514,12 @@ class Recipes(object):
 
 
 class Scenarios(object):
-    def __init__(self, i, input_memmap_path):
+    def __init__(self, i, region, input_memmap_path, active_reaches='all', recipe_map=None, retain=None):
         self.i = i
-        self.keyfile_path = input_memmap_path + "_key.txt"
+        self.path = os.path.join(input_memmap_path, "region_" + region)
+        self.keyfile_path = self.path + "_key.txt"
+        self.active_reaches = active_reaches
+        self.recipe_map = recipe_map
 
         # Load key file for interpreting input matrices
         self.arrays, self.variables, self.names, self.array_shape, self.variable_shape, self.start_date, \
@@ -514,17 +529,26 @@ class Scenarios(object):
         self.end_date = self.start_date + np.timedelta64(self.n_dates, 'D')
         self.start_offset, self.end_offset = self.date_offsets()
 
+        # Confine to active reaches
+        if active_reaches != 'all' and self.recipe_map is not None:
+            self.names = self.confine()
+
         # Initialize input matrices
         self.array_matrix = \
-            MemoryMatrix([self.names, self.arrays, self.n_dates], path=input_memmap_path + "_arrays", existing=True)
+            MemoryMatrix([self.names, self.arrays, self.n_dates], path=self.path + "_arrays.dat", existing=True)
         self.variable_matrix = \
-            MemoryMatrix([self.names, self.variables], path=input_memmap_path + "_vars", existing=True)
+            MemoryMatrix([self.names, self.variables], path=self.path + "_vars.dat", existing=True)
 
         # Initialize empty matrix for procesed scenarios
-        self.processed_matrix = MemoryMatrix([self.names, 4, i.n_dates])
+        process = retain is None or not os.path.exists(retain)
+        self.processed_matrix = MemoryMatrix([self.names, 4, i.n_dates], path=retain)
+        if process:
+            self.process_scenarios()
 
-        # Populate scenario matrix if it doesn't exist
-        self.process_scenarios()
+    def confine(self):
+        years = sorted((k[1] for k in self.recipe_map.map.keys()))
+        names = {s for y in years for r in self.active_reaches for sc, _ in self.recipe_map.fetch(r, y) for s in sc}
+        return sorted(names)
 
     def date_offsets(self):
         if self.start_date > self.i.sim_date_start:
@@ -571,6 +595,7 @@ class Scenarios(object):
 
             # Get crop ID of scenario and find all associated crops in group
             crop = int(scenario_id.split("cdl")[1])
+
             if crop in self.i.crops:
 
                 # Read non-sequential variables from scenario and process
@@ -578,6 +603,7 @@ class Scenarios(object):
                     covmax, org_carbon, bulk_density, overlay, *plant_dates = variable_reader[n]
                 else:
                     overlay = None
+
                     covmax, org_carbon, bulk_density, *plant_dates = variable_reader[n]
 
                 # Extract arrays
@@ -592,8 +618,9 @@ class Scenarios(object):
                 assert self.i.applications.shape[1] == 11, "Invalid application matrix, should have 11 columns"
 
                 # Calculate the daily input of pesticide to the soil and plant canopy
+
                 application_mass = \
-                    pesticide_to_field(self.i.applications, self.i.new_year, crop, plant_dates, rain)
+                    pesticide_to_field(self.i.applications, self.i.new_year, crop, plant_dates, rain, n == 47646)
 
                 # Calculate the daily mass of pesticide in the soil
                 pesticide_mass_soil = pesticide_to_soil(application_mass, rain, plant_factor, soil.cm_2,
@@ -739,13 +766,16 @@ def initialize():
     # Make sure needed subdirectories exist
     preexisting_subdirs = ["Results", "temp"]
     for subdir in preexisting_subdirs:
-        if not os.path.exists(os.path.join("..", subdir)):
-            os.mkdir(subdir)
-
-    # Purge temp folder
-    temp_folder = os.path.join("..", "temp")
-    for f in os.listdir(temp_folder):
-        os.remove(os.path.join(temp_folder, f))
+        d = os.path.join("..", "bin", subdir)
+        if not os.path.exists(d):
+            os.makedirs(d)
+        else:
+            if subdir == 'temp':
+                for f in os.listdir(d):
+                    try:
+                        os.remove(os.path.join(d, f))
+                    except PermissionError:
+                        print("Unable to get permission to delete temp file")
 
 
 @njit
@@ -793,32 +823,50 @@ def impulse_response_function(alpha, beta, length):
     def gamma_distribution(t, a, b):
         a, b = map(float, (a, b))
         tau = a * b
-        return ((t ** (a - 1)) / (((tau / a) ** a) * math.gamma(a))) * math.exp(-(a / tau) * t)
+        try:
+            return ((t ** (a - 1)) / (((tau / a) ** a) * math.gamma(a))) * math.exp(-(a / tau) * t)
+        except Exception as e:
+            print(a, b, tau, t, length)
+            print(e)
+            raise
 
     return np.array([gamma_distribution(i, alpha, beta) for i in range(length)])
 
 
 @njit
-def pesticide_to_field(applications, new_years, active_crop, event_dates, rain):
+def pesticide_to_field(applications, new_years, active_crop, event_dates, rain, diagnostic=False):
     """ Simulate timing of pesticide appplication to field """
 
     application_mass = np.zeros((2, rain.size))
     for i in range(applications.shape[0]):
+
         crop, event, offset, canopy, step, window1, pct1, window2, pct2, effic, rate = applications[i]
+        if diagnostic:
+            print(i, applications.shape[0])
+            print(crop, crop == active_crop)
         if crop == active_crop:
             event_date = int(event_dates[int(event)])
             daily_mass_1 = rate * (pct1 / 100.) / window1
+            if diagnostic:
+                print("a")
             if step:
                 daily_mass_2 = rate * (pct2 / 100.) / window2
+            if diagnostic:
+                print("b")
             for year in range(new_years.size):
                 new_year = new_years[year]
+                print(year, new_year, int(window1), int(window2))
                 for k in range(int(window1)):
                     date = int(new_year + event_date + offset + k)
+                    print(k, int(canopy), new_year, event_date, offset, date, daily_mass_1)
+                    print(application_mass[int(canopy), date])
                     application_mass[int(canopy), date] = daily_mass_1
                 if step:
-                    for l in range(window2):
+                    for l in range(int(window2)):
                         date = int(new_year + event_date + window1 + offset + l)
                         application_mass[int(canopy), date] = daily_mass_2
+            if diagnostic:
+                print("c")
     return application_mass
 
 
@@ -890,7 +938,7 @@ def pesticide_to_water(pesticide_mass_soil, runoff, erosion, leaching, bulk_dens
 
 if __name__ == "__main__":
     import cProfile
-    from ubertool_ecorest.ubertool.ubertool.sam.Tool.pesticide_calculator import main
+    from .pesticide_calculator import main
 
     if False:
         cProfile.run('main()')

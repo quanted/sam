@@ -3,17 +3,32 @@ import math
 
 import pandas as pd
 import numpy as np
+import re
 from numba import njit
-from Tool.functions import MemoryMatrix
+
+from Tool.functions import MemoryMatrix, RecipeMap
+from utilities import nhd_states, slope_range, uslep_values, matrix_fields, types, increments_1, increments_2, delta_x
 
 
 class InputMatrix(pd.DataFrame):
-    def __init__(self, path):
+    def __init__(self, state_files, scenarios):
         super().__init__()
-        self.path = path
-        super(InputMatrix, self).__init__(pd.read_csv(self.path, dtype=matrix_fields))
-        # self.set_index("scenario", inplace=True)
+        self.scenarios = scenarios
+        self.state_files = state_files
+
+        super(InputMatrix, self).__init__(self.read_arrays())
+
         self.modify_array()
+
+    def read_arrays(self):
+        full_table = None
+        for state, matrix_file in self.state_files:
+            matrix = pd.read_csv(matrix_file, dtype=matrix_fields).set_index("scenario")
+            common_scenarios = set(matrix.index.values) & self.scenarios
+            print(state, matrix.shape[0], len(common_scenarios))
+            matrix = matrix.loc[sorted(common_scenarios)]
+            full_table = matrix if full_table is None else pd.concat([full_table, matrix], axis=0)
+        return full_table.reset_index()
 
     @staticmethod
     def check_scenario(r):
@@ -39,8 +54,7 @@ class InputMatrix(pd.DataFrame):
 
 class MetfileMatrix(MemoryMatrix):
     def __init__(self, memmap_path):
-        self.dir = os.path.dirname(memmap_path)
-        self.name = os.path.basename(memmap_path)
+        self.path = memmap_path + ".dat"
         self.keyfile_path = memmap_path + "_key.npy"
 
         # Set row/column offsets
@@ -52,8 +66,7 @@ class MetfileMatrix(MemoryMatrix):
         self.new_years = np.arange(self.start_date, self.end_date + np.timedelta64(365, 'D'),
                                    np.timedelta64(1, 'Y'), dtype='datetime64[Y]').astype('datetime64[D]')
         # Initialize memory matrix
-        super(MetfileMatrix, self).__init__(self.metfiles, self.n_dates, 3, path=self.dir,
-                                            base=self.name, input_only=True)
+        super(MetfileMatrix, self).__init__([self.metfiles, self.n_dates, 3], path=self.path, existing=True)
 
     def load_key(self):
         try:
@@ -82,6 +95,7 @@ class OutputMatrix(object):
         self.arrays = ['leaching', 'runoff', 'erosion', 'soil_water', 'plant_factor', 'rain']
         self.variables = ['covmax', 'org_carbon', 'bulk_density', 'overlay',
                           'plant_beg', 'harvest_beg', 'emerg_beg', 'bloom_beg', 'mat_beg']
+        self.keyfile_path = output_memmap + "_key.txt"
 
         # Initalize matrices
         self.array_matrix = MemoryMatrix([self.in_matrix.scenario, self.arrays, self.met.n_dates],
@@ -93,7 +107,7 @@ class OutputMatrix(object):
         self.populate()
 
     def create_keyfile(self):
-        with open(os.path.join(self.dir, self.name + "_key.txt"), 'w') as f:
+        with open(self.keyfile_path, 'w') as f:
             for var in (self.arrays, self.variables, self.in_matrix.scenario):
                 f.write(",".join(var) + "\n")
             f.write(pd.to_datetime(self.met.start_date).strftime('%Y-%m-%d') + "\n")
@@ -428,142 +442,50 @@ def process_erosion(num_records, slope, manning_n, runoff, rain, cn, usle_klscp,
     return erosion_loss
 
 
+def get_files(states, file_dir, file_format):
+    state_files = {state: {} for state in states}
+    for f in os.listdir(file_dir):
+        match = re.match(file_format, f)
+        if match:
+            state, date = match.groups()
+            try:
+                state_files[state][date] = os.path.join(file_dir, f)
+            except KeyError:
+                pass
+    missing = [state for state, files in state_files.items() if not any(files)]
+    if any(missing):
+        print('Missing scenario matrices for state(s): ' + ", ".join(missing))
+        # raise Exception()
+    return [(state, files[max(files.keys())]) for state, files in state_files.items() if any(files)]
+
+
 def main():
-    input_file = os.path.join("..", "bin", "Preprocessed", "ScenarioMatrices", "IN_scenarios_agg_101017.txt")
+    input_file_dir = os.path.join("..", "bin", "Preprocessed", "ScenarioMatrices")
+    recipe_dir = os.path.join("..", "bin", "Preprocessed", "RecipeMaps")
     metfile_memmap = os.path.join("..", "bin", "Preprocessed", "MetTables", "metfile")
-    output_memmap = os.path.join("..", "bin", "Preprocessed", "Scenarios", "in1010")
+    output_dir = os.path.join("..", "bin", "Preprocessed", "Scenarios")
+    scenario_file_format = "([A-Z]{2})_scenarios_agg_(\d{6}).txt"
 
     # Initialize input met matrix
     met = MetfileMatrix(metfile_memmap)
 
-    # Read input scenario matrix into table
-    in_matrix = InputMatrix(input_file)
+    for region, states in nhd_states.items():
+        if region == '07':
+            print(region)
+            scenarios = set(RecipeMap(region, recipe_dir).scenario_index)
 
-    # Initialize output memmap
-    OutputMatrix(in_matrix, met, output_memmap)
 
+            output_memmap = os.path.join("..", "bin", "Preprocessed", "Scenarios", "region_{}".format(region))
 
-# Parameters
-increments_1 = 1  # number of increments in top 2-cm layer: 1 COMPARTMENT, UNIFORM EXTRACTION
-increments_2 = 20  # number of increments in 2nd 100-cm layer (not used in extraction)
-delta_x = np.array([0.02] + [0.05] * ((increments_1 + increments_2) - 1))
+            # Read all scenario matrices corresponding to the region
+            state_files = get_files(states, input_file_dir, scenario_file_format)
 
-# Values are from Table F1 of TR-55, interpolated values are included to make arrays same size
-erosion_header = [.1, .15, .2, .25, .3, .35, .4, .45, .5]
-types = np.array([
-    [[2.3055, -0.51429, -0.1175],
-     [2.2706, -0.50908, -0.1034],
-     [2.23537, -0.50387, -0.08929],
-     [2.18219, -0.48488, -0.06589],
-     [2.10624, -0.45695, -0.02835],
-     [2.00303, -0.40769, -0.01983],
-     [1.87733, -0.32274, -0.05754],
-     [1.76312, -0.15644, -0.00453],
-     [1.67889, -0.0693, 0.]],
-    [[2.0325, -0.31583, -0.13748],
-     [1.97614, -0.29899, -0.10384],
-     [1.91978, -0.28215, -0.0702],
-     [1.83842, -0.25543, -0.02597],
-     [1.72657, -0.19826, 0.02633],
-     [1.70347, -0.17145, 0.01975],
-     [1.68037, -0.14463, 0.01317],
-     [1.65727, -0.11782, 0.00658],
-     [1.63417, -0.091, 0.]],
-    [[2.55323, -0.61512, -0.16403],
-     [2.53125, -0.61698, -0.15217],
-     [2.50975, -0.61885, -0.1403],
-     [2.4873, -0.62071, -0.12844],
-     [2.46532, -0.62257, -0.11657],
-     [2.41896, -0.61594, -0.0882],
-     [2.36409, -0.59857, -0.05621],
-     [2.29238, -0.57005, -0.02281],
-     [2.20282, -0.51599, -0.01259]],
-    [[2.47317, -0.51848, -0.17083],
-     [2.45395, -0.51687, -0.16124],
-     [2.43473, -0.51525, -0.15164],
-     [2.4155, -0.51364, -0.14205],
-     [2.39628, -0.51202, -0.13245],
-     [2.35477, -0.49735, -0.11985],
-     [2.30726, -0.46541, -0.11094],
-     [2.24876, -0.41314, -0.11508],
-     [2.17772, -0.36803, -0.09525]]])
+            # Read input scenario matrices into table
+            in_matrix = InputMatrix(state_files, scenarios)
 
-slope_range = np.array([-1, 2.0, 7.0, 12.0, 18.0, 24.0])
-uslep_values = np.array([0.6, 0.5, 0.6, 0.8, 0.9, 1.0])
+            # Initialize output memmap
+            OutputMatrix(in_matrix, met, output_memmap)
 
-matrix_fields = \
-    {'scenario': object,  # desc
-     'mukey': object,  # SSURGO mapunit key (NOT USED)
-     'cokey': object,  # SSURGO component key (NOT USED)
-     'state': object,  # State name (NOT USED)
-     'cdl': object,  # CDL class number (NOT USED)
-     'weatherID': object,  # Weather station ID
-     'date': object,  # Date (NOT USED)
-     'leachpot': object,  # Leaching potential
-     'hsg': object,  # Hydrologic soil group
-     'cn_ag': float,  # desc
-     'cn_fallow': float,  # desc
-     'orgC_5': float,  # desc
-     'orgC_20': float,  # desc
-     'orgC_50': float,  # desc
-     'orgC_100': float,  # desc
-     'bd_5': float,  # desc
-     'bd_20': float,  # desc
-     'bd_50': float,  # desc
-     'bd_100': float,  # desc
-     'fc_5': float,  # desc
-     'fc_20': float,  # desc
-     'fc_50': float,  # desc
-     'fc_100': float,  # desc
-     'wp_5': float,  # desc
-     'wp_20': float,  # desc
-     'wp_50': float,  # desc
-     'wp_100': float,  # desc
-     'pH_5': float,  # desc
-     'pH_20': float,  # desc
-     'pH_50': float,  # desc
-     'pH_100': float,  # desc
-     'sand_5': float,  # desc
-     'sand_20': float,  # desc
-     'sand_50': float,  # desc
-     'sand_100': float,  # desc
-     'clay_5': float,  # desc
-     'clay_20': float,  # desc
-     'clay_50': float,  # desc
-     'clay_100': float,  # desc
-     'kwfact': float,  # desc
-     'slope': float,  # desc
-     'slp_length': float,  # desc
-     'uslels': float,  # desc
-     'RZmax': float,  # desc
-     'sfac': float,  # desc
-     'rainfall': float,  # desc
-     'anetd': float,  # desc
-     'plntbeg': float,  # desc
-     'plntend': float,  # desc
-     'harvbeg': float,  # desc
-     'harvend': float,  # desc
-     'emrgbeg': float,  # desc
-     'emrgend': float,  # desc
-     'blmbeg': float,  # desc
-     'blmend': float,  # desc
-     'matbeg': float,  # desc
-     'matend': float,  # desc
-     'cfloatcp': float,  # desc
-     'covmax': float,  # desc
-     'amxdr': float,  # desc
-     'irr_pct': float,  # desc
-     'irr_type': float,  # desc
-     'deplallw': float,  # desc
-     'leachfrac': float,  # desc
-     'cropprac': float,  # desc
-     'uslep': float,  # desc
-     'cfact_fal': float,  # desc
-     'cfact_cov': float,  # desc
-     'ManningsN': float,  # desc
-     'overlay': float,  # desc
-     'MLRA': float  # desc
-     }
 
 if False:
     import cProfile
