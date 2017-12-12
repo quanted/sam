@@ -701,8 +701,8 @@ class Outputs(object):
     def write_json(self, write_exceedances=False, write_contributions=False):
 
         encoder.FLOAT_REPR = lambda o: format(o, '.4f')
-        out_file = os.path.join(self.output_dir, "{}_json.csv".format(self.i.chemical_name))
-        out_json = {"COMID": {}}
+        out_file = os.path.join(self.output_dir, "out_json.csv")
+        out_json = {"COMID": {}, "RUN": {'mode': self.i.sim_type}}
         for recipe_id in self.recipe_ids:
             out_json["COMID"][str(recipe_id)] = {}
             if write_exceedances:
