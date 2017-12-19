@@ -3,6 +3,7 @@ from .functions import InputParams, Hydroregion, Scenarios, Recipes, Outputs, in
 
 
 def pesticide_calculator(input_data):
+
     # Initialize file structure
     initialize()
 
@@ -14,7 +15,7 @@ def pesticide_calculator(input_data):
 
         # Load watershed topology maps and account for necessary files
         print("Processing hydroregion {}...".format(region_id))
-        region = Hydroregion(region_id, p.map_path, p.flow_dir, p.upstream_path, p.lakefile_path, inputs.active_reaches)
+        region = Hydroregion(region_id, inputs.sim_type, p.map_path, p.flow_dir, p.upstream_path, p.lakefile_path, p.geometry_path)
 
         # Simulate application of pesticide to all input scenarios
         print("Processing scenarios...")
@@ -22,16 +23,17 @@ def pesticide_calculator(input_data):
                               retain=r"..\bin\deux")  # retain=r"..\bin\une"
 
         # Initialize output object
-        outputs = Outputs(inputs, region.active_reaches, scenarios.names, p.output_path)
+        outputs = Outputs(inputs, scenarios.names, p.output_path, region.geometry, region.feature_type, demo_mode=True)
 
         # Cascade downstream processing watershed recipes and performing travel time analysis
         for year in [2011]:  # manual years
 
             print("Processing recipes for {}...".format(year))
-            recipes = Recipes(inputs, outputs, year, region, scenarios, p.output_path, inputs.active_reaches)
+            recipes = Recipes(inputs, outputs, year, region, scenarios, p.output_path, region.active_reaches)
 
             # Iterate through batches of reaches upstream of a reservoir
             for reaches, lake in region.cascade():
+
                 # Process all the recipes in the batch
                 recipes.process_recipes(reaches)
 
@@ -51,5 +53,4 @@ def main(input_data=None):
 
 if __name__ == "__main__":
     from .chemicals import atrazine_demo
-
     main(atrazine_demo)

@@ -472,10 +472,9 @@ def main():
     for region, states in nhd_states.items():
         if region == '07':
             print(region)
-            scenarios = set(RecipeMap(region, recipe_dir).scenario_index)
+            scenarios = set(RecipeMap(region, recipe_dir).scenarios)
 
-
-            output_memmap = os.path.join("..", "bin", "Preprocessed", "Scenarios", "region_{}".format(region))
+            output_memmap = os.path.join("..", "bin", "Preprocessed", "Scenarios", "region_{}test".format(region))
 
             # Read all scenario matrices corresponding to the region
             state_files = get_files(states, input_file_dir, scenario_file_format)

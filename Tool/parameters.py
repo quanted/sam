@@ -18,8 +18,7 @@ path_params = {
     "flow_dir": os.path.join(path, "Preprocessed", "FlowFiles"),
     "lakefile_path": os.path.join(path, "Preprocessed", "LakeFiles"),
     "upstream_path": os.path.join(path, "Preprocessed", "Navigators"),
-    "drinking_water_intakes": os.path.join(path, "Preprocessed", "Intakes", "intake_locations.csv"),
-    "manual_intakes": os.path.join(path, "Preprocessed", "Intakes", "mtb_intakes.csv")
+    "geometry_path": os.path.join(path, "Preprocessed", "Geometry")
 }
 
 """ Parameters below are hardwired model parameters """

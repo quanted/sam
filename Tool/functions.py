@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pandas as pd
 
-from collections import Iterable
+from collections import Iterable, OrderedDict
 
 from tempfile import mkstemp
 from json import encoder
@@ -101,6 +101,71 @@ class MemoryMatrix(object):
         return np.memmap(self.path, dtype=self.dtype, mode=mode, shape=self.shape)
 
 
+class Geometry(object):
+    def __init__(self, region, geometry_dir):
+        self.region = region
+        self.flowline_path = os.path.join(geometry_dir, "region_{}_flowlines".format(self.region))
+        self.intake_path = os.path.join(geometry_dir, "region_{}_intakes".format(self.region))
+        self.key_path = self.flowline_path + "_key.npz"
+
+        self._intakes = None
+        self._map = None
+        self._shape = None
+
+    def load_key(self):
+        data = np.load(self.key_path)
+        data_map = {comid: (start_row, end_row) for comid, start_row, end_row in data['map']}
+        shape = tuple(data['shape'])
+        return data_map, shape
+
+    def fetch(self, comid, feature_type, verbose=False):
+        if feature_type == "flowline":
+            address = self.map.get(comid)
+            if address is None and verbose:
+                print("Reach {} not found in geometry file for Region {}".format(comid, self.region))
+            elif address is not None:
+                array = np.memmap(self.flowline_path + ".dat", dtype=np.float32, shape=self.shape, mode='r+')
+                start_row, end_row = address
+                coordinates = array[start_row:end_row].tolist()
+                del array
+                return coordinates
+        elif feature_type == "intake":
+            return self.intakes.get(comid)
+        else:
+            raise ValueError("Invalid feature_type {} provided".format(feature_type))
+
+    def read_intakes(self):
+        intake_table = pd.read_csv(self.intake_path + ".csv").set_index("COMID")
+        self._intakes = {comid: row.to_dict() for comid, row in intake_table.iterrows()}
+
+    def index(self, feature_type):
+        if feature_type == "flowline":
+            return set(self.map.keys())
+        elif feature_type == "intake":
+            return set(self.intakes.keys())
+        else:
+            raise ValueError("Invalid feature_type {} provided".format(feature_type))
+
+
+    @property
+    def intakes(self):
+        if self._intakes is None:
+            self.read_intakes()
+        return self._intakes
+
+    @property
+    def map(self):
+        if self._map is None:
+            self._map, self._shape = self.load_key()
+        return self._map
+
+    @property
+    def shape(self):
+        if self._shape is None:
+            self._map, self._shape = self.load_key()
+        return self._shape
+
+
 class HydroTable(pd.DataFrame):
     def __init__(self, region, path):
         super().__init__()
@@ -129,17 +194,22 @@ class Hydroregion(object):
     Contains all datasets and functions related to the NHD Plus region, including all hydrological features and links
     """
 
-    def __init__(self, region, map_path, flowfile_dir, upstream_dir, lakefile_dir, input_active='all'):
+    def __init__(self, region, sim_type, map_dir, flowfile_dir, upstream_dir, lakefile_dir, geometry_dir):
         self.id = region
-        self.input_active = input_active
+        self.sim_type = sim_type
+        self.feature_type = "flowline" if self.sim_type == 'eco' else "intake"
 
         # Read hydrological input files
+        self.geometry = Geometry(self.id, geometry_dir)
+        if self.id == 'mtb':
+            self.id = '07'
         self.flow_file = HydroTable(self.id, flowfile_dir)
         self.lake_table = HydroTable(self.id, lakefile_dir)
         self.nav = Navigator(self.id, upstream_dir)
-        self.recipe_map = RecipeMap(self.id, map_path)
+        self.recipe_map = RecipeMap(self.id, map_dir)
 
         # Confine to available reaches and assess what's missing
+        self.geometry_index = self.geometry.index(self.feature_type)
         self.active_reaches = self.confine()
         self.run_reaches = set()
 
@@ -166,16 +236,19 @@ class Hydroregion(object):
         yield remaining_reaches, None
 
     def confine(self):
+
         # Recipe/reaches that are (1) in the upstream file and (2) have a recipe file in at least 1 yr
         map_reaches = {reach_id for reach_id, _ in self.recipe_map.map.keys()}
         region_reaches = self.nav.reach_ids
         active_reaches = map_reaches & region_reaches
 
-        # Trim active reaches to watershed upstream of input active
-        if self.input_active != 'all':
-            active_reaches &= \
-                {us for r in self.input_active for us in self.nav.upstream_watershed(r, return_times=False)[0]}
+        # Get reaches from geometry file and all associated upstream
+        upstream_reaches = \
+            {us for r in self.geometry.index(self.feature_type)
+             for us in self.nav.upstream_watershed(r, return_times=False)[0]}
+        active_reaches &= upstream_reaches
         active_reaches.discard(0)
+
         return active_reaches
 
 
@@ -211,7 +284,14 @@ class InputParams(object):
         # Read input dictionary
         self.__dict__.update(input_dict)
 
-        self.sim_type = 'manual'  # JCH - diagnostic, temporary (mtb)
+        # JCH - enables running just the Mark Twain
+        if self.region == "Mark Twain Demo":
+            self.region = 'mtb'
+        elif self.region in ('7.0', 7.0):
+            self.region = '07'
+
+        # JCH - this will be used to run multiple regions eventually (change frontend)
+        self.active_regions = [self.region]
 
         # Endpoints
         self.endpoints = pd.DataFrame(self.endpoints)
@@ -228,9 +308,6 @@ class InputParams(object):
         self.new_year = np.int32([(np.datetime64("{}-01-01".format(year)) - self.sim_date_start).astype(int)
                                   for year in self.unique_years])
 
-        # Processing extent
-        self.intakes, self.active_regions, self.active_reaches = self.processing_extent()
-
         # Initialize an impulse response matrix if convolving timesheds
         self.irf = None if not time_of_travel.gamma_convolve else ImpulseResponseMatrix(self.dates.size)
 
@@ -244,37 +321,8 @@ class InputParams(object):
         # To be added to front end
         self.write_contributions = True
         self.write_exceedances = True
-        self.write_time_series = True
+        self.write_time_series = False
         self.read_overlay = False
-
-    def processing_extent(self):
-        """ Determine which NHD regions need to be run to process the specified reacches """
-        from .parameters import nhd_regions, paths as p
-
-        assert self.sim_type in ('eco', 'drinking_water', 'manual'), \
-            "Invalid simulation type '{}'".format(self.sim_type)
-
-        # Get the path of the table used for intakes
-        table = {'eco': None, 'drinking_water': p.drinking_water_intakes, 'manual': p.manual_intakes}[self.sim_type]
-
-        # Get reaches and regions to be processed if not running eco
-        if table is not None:
-            assert os.path.isfile(table), "Specified intake table '{}' not found".format(table)
-            intakes = pd.read_csv(table)
-            intakes['Region'] = [str(region).zfill(2) for region in intakes.Region]
-            try:
-                active_regions = sorted(np.unique(intakes.Region))
-                active_reaches = sorted(np.unique(intakes.COMID))
-            except AttributeError as e:
-                raise Exception("Invalid intake table: must have 'Region' and 'COMID' columns") from e
-
-        # Run everything if running eco
-        else:
-            intakes = None
-            active_regions = sorted(nhd_regions)
-            active_reaches = 'all'
-
-        return intakes, active_regions, active_reaches
 
 
 class Navigator(object):
@@ -516,6 +564,11 @@ class Recipes(object):
 class Scenarios(object):
     def __init__(self, i, region, input_memmap_path, active_reaches='all', recipe_map=None, retain=None):
         self.i = i
+
+        # JCH - temporary, for demo
+        if region == 'mtb':
+            region = '07'
+
         self.path = os.path.join(input_memmap_path, "region_" + region)
         self.keyfile_path = self.path + "_key.txt"
         self.active_reaches = active_reaches
@@ -648,19 +701,18 @@ class Scenarios(object):
 
 
 class Outputs(object):
-    def __init__(self, i, recipe_ids, scenario_ids, output_path):
+    def __init__(self, i, scenario_ids, output_path, geometry, feature_type, demo_mode=False):
         self.i = i
-        self.recipe_ids = sorted(recipe_ids)
+        self.geometry = geometry
         self.scenario_ids = scenario_ids
         self.output_dir = os.path.join(output_path, i.token)
-        self.write_list = self.i.active_reaches
-
-        # Initialize output JSON dict
-        self.out_json = {}
+        self.feature_type = feature_type
+        self.recipe_ids = sorted(self.geometry.index(self.feature_type))
+        self.demo_mode = demo_mode
 
         # Initialize output matrices
         self.output_fields = ['total_flow', 'total_runoff', 'total_mass', 'total_conc', 'benthic_conc']
-        self.time_series = MemoryMatrix([sorted(self.write_list), self.output_fields, self.i.n_dates])
+        self.time_series = MemoryMatrix([self.recipe_ids, self.output_fields, self.i.n_dates])
 
         # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
         self.exceedances = MemoryMatrix([self.recipe_ids, self.i.endpoints.shape[0]])
@@ -700,22 +752,81 @@ class Outputs(object):
 
     def write_json(self, write_exceedances=False, write_contributions=False):
 
+        # Initialize JSON output
         encoder.FLOAT_REPR = lambda o: format(o, '.4f')
         out_file = os.path.join(self.output_dir, "out_json.csv")
-        out_json = {"COMID": {}, "RUN": {'mode': self.i.sim_type}}
+        out_json = OrderedDict((("type", "FeatureCollection"), ("features", [])))
+
+        # Iterate through recipes
         for recipe_id in self.recipe_ids:
-            out_json["COMID"][str(recipe_id)] = {}
+
+            # Initialize new feature
+            new_feature = self.geometry.fetch(recipe_id, self.feature_type)
+            if self.feature_type == "flowline":
+                new_feature = {"type": "Feature",
+                               "geometry": {"type": "LineString", "coordinates": new_feature},
+                               "properties": {"COMID": int(recipe_id)}}
+            else:
+                coordinates = [float(new_feature.pop(f)) for f in ("y_coord", "x_coord")]
+                new_feature = {"type": "Feature",
+                               "geometry": {"type": "Point", "coordinates": coordinates},
+                               "properties": new_feature}
+
+            # Add exceedance probabilities
             if write_exceedances:
                 exceedance_dict = dict(zip(self.i.endpoints.short_name, map(float, self.exceedances.fetch(recipe_id))))
-                out_json["COMID"][str(recipe_id)].update(exceedance_dict)
+                new_feature['properties'].update(exceedance_dict)
+
+            # Add percent contributions
             if write_contributions:
                 contributions = self.contributions.fetch(recipe_id)
                 for i, category in enumerate(("runoff", "erosion")):
                     labels = ["{}_load_{}".format(category, label) for label in self.contributions.header]
                     contribution_dict = dict(zip(labels, map(float, contributions[i])))
-                    out_json["COMID"][str(recipe_id)].update(contribution_dict)
+                    new_feature['properties'].update(contribution_dict)
 
-        out_json = json.dumps(dict(out_json), sort_keys=True, indent=4, separators=(',', ': '))
+            # Append new feature to output
+            out_json["features"].append(new_feature)
+
+        # Convert output dict to JSON object
+        out_json = json.dumps(out_json, sort_keys=False, separators=(',', ':'))
+
+        # Write to file
+        with open(out_file, 'w') as f:
+            f.write(out_json)
+
+    def write_demo(self, fields):
+        # Initialize JSON output
+        encoder.FLOAT_REPR = lambda o: format(o, '.4f')
+        out_file = os.path.join(self.output_dir, "out_json.csv")
+        out_json = OrderedDict((("type", "FeatureCollection"), ("features", [])))
+
+        # Iterate through recipes
+        for recipe_id in self.recipe_ids:
+
+            # Initialize new feature
+            new_feature = self.geometry.fetch(recipe_id, self.feature_type)
+            if self.feature_type == "flowline":
+                new_feature = {"type": "Feature",
+                               "geometry": {"type": "LineString", "coordinates": new_feature},
+                               "properties": {"COMID": int(recipe_id)}}
+            else:
+                coordinates = [float(new_feature.pop(f)) for f in ("y_coord", "x_coord")]
+                new_feature = {"type": "Feature",
+                               "geometry": {"type": "Point", "coordinates": coordinates},
+                               "properties": new_feature}
+
+            # Add exceedance probabilities
+            for field_name, sigma in fields:
+                new_feature["properties"][field_name] = min((abs(np.random.normal(0, sigma)), 1))
+
+            # Append new feature to output
+            out_json["features"].append(new_feature)
+
+        # Convert output dict to JSON object
+        out_json = json.dumps(out_json, sort_keys=False, separators=(',', ':'))
+
+        # Write to file
         with open(out_file, 'w') as f:
             f.write(out_json)
 
@@ -726,7 +837,26 @@ class Outputs(object):
             os.makedirs(self.output_dir)
 
         # Write JSON output
-        self.write_json(self.i.write_exceedances, self.i.write_contributions)
+        if self.demo_mode:
+
+            demo_fields = [['acute_human', 0.1],
+                           ['acute_fw_fish', 0.1],
+                           ['chronic_fw_fish', 0.2],
+                           ['acute_fw_inv', 0.1],
+                           ['chronic_fw_inv', 0.3],
+                           ['acute_em_fish', 0.05],
+                           ['chronic_em_fish', 0.2],
+                           ['acute_em_inv', 0.2],
+                           ['chronic_em_inv', 0.3],
+                           ['acute_nonvasc_plant', 0.01],
+                           ['acute_vasc_plant', 0.1],
+                           ['pct_corn', 0.4],
+                           ['pct_soy', 0.2],
+                           ['pct_row', 0.1]]
+
+            self.write_demo(demo_fields)
+        else:
+            self.write_json(self.i.write_exceedances, self.i.write_contributions)
 
         # Write time series
         if self.i.write_time_series:
@@ -755,7 +885,7 @@ class Outputs(object):
 
         headings = [heading_lookup.get(field, "N/A") for field in fields]
 
-        for recipe_id in self.write_list:
+        for recipe_id in self.recipe_ids:
             out_file = os.path.join(self.output_dir, "time_series_{}.csv".format(recipe_id))
             out_data = self.time_series.fetch(recipe_id)[field_indices].T
             df = pd.DataFrame(data=out_data, index=self.i.dates, columns=headings)
