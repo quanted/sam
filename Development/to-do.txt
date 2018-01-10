@@ -1,0 +1,25 @@
+* Clarify the origin of lookup tables by either (1) pointing directly to NHD/SSURGO, or (2) creating extraction scripts
+
+* Further refine field specifcation, make sure applies throughout workflow
+
+* Streamline for speed and clarity
+
+* Explore aggregation procedure more. Combine?
+
+* Make run as regions instead of states.  Mosaic SSURGO rasters.
+
+* De-ESRIfy
+
+* CondensedNHD as source of HUC-8 data
+
+* Improve variable names
+
+* Get all scripts working and check validity
+
+* Depth weighting after component selection?
+
+* Rebuild 'extract_ssurgo' script, build in functionality to preserve field types
+
+* Maybe even build a 'streamline ssurgo' companion to streamline NHD
+
+* Rename keys in CondensedNHD from table/key to data/columns, for ** reading into pd dataframe
