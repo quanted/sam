@@ -30,6 +30,7 @@ def sever_divergences(flow_table, vaa_table):
     new_table = flow_table[["fromcomid", "tocomid"]].rename(columns={"fromcomid": "comid"})
     return new_table
 
+
 def extract_tables(flow_table, flow_lines, vaa_table, gridcode_table):
     extract_fields = [["featureid", "gridcode"],  # gridcode_table
                       ["comid", "fcode", "wbareacomi"],  # flow lines
@@ -67,7 +68,6 @@ def add_erom_data(erom_dir):
 
 
 def calculate_attributes(table):
-
     months = list(map(str, range(1, 13)))
 
     # Convert units and calculate travel times
@@ -98,8 +98,6 @@ def main():
         if region == '07':
             print(region)
 
-            import time
-
             # Set paths
             flow_table = os.path.join(region_dir, "NHDPlusAttributes", "PlusFlow.dbf")
             flow_lines = os.path.join(region_dir, "NHDSnapshot", "Hydrography", "NHDFlowline.dbf")
@@ -109,20 +107,15 @@ def main():
             output_flow_file = os.path.join(out_dir, "region_{}.npz".format(region))
 
             if overwrite or not os.path.exists(output_flow_file):
-
                 # Extract data
-                
                 nodes = sever_divergences(flow_table, vaa_table)
-                print(1, nodes[nodes.comid == 13454142])
-                print(1, nodes[nodes.tocomid == 13454142])
                 attribute_table = extract_tables(nodes, flow_lines, vaa_table, gridcode_table)
-                print(2, attribute_table[attribute_table.comid == 13454142])
                 erom_table = add_erom_data(erom_dir)
-                print(3, erom_table[erom_table.comid == 13454142])
 
                 # Merge and save
                 region_table = pd.merge(attribute_table, erom_table, on='comid', how='outer')
                 region_table = calculate_attributes(region_table)
                 np.savez_compressed(output_flow_file, table=region_table.as_matrix(), key=region_table.columns.tolist())
+
 
 main()

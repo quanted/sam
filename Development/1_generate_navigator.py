@@ -131,9 +131,6 @@ def dict_to_array(cd):
 def main():
     from Preprocessing.utilities import nhd_states
 
-    # Set parameters
-    overwrite = True
-
     # Set initial paths
     nhd_path = os.path.join("..", "bin", "Preprocessed", "CondensedNHD")
     output_path = os.path.join(r"..\bin\Preprocessed\Navigators", "region_{}.npz")
@@ -146,19 +143,6 @@ def main():
         # Designate paths
         nhd_table = HydroTable(region, nhd_path)
 
-        nodes, times, conversion_dict = get_nodes(nhd_table)
-        attributes = np.array([times])
 
-        outlets = identify_outlets(nhd_table, conversion_dict)
-
-        paths, attribute_matrix = upstream_trace(nodes, outlets, attributes)
-
-        path_map = map_paths(paths)
-
-        paths, attribute_matrix, start_cols = collapse_array(paths, attribute_matrix)
-
-        conversion_array = dict_to_array(conversion_dict)
-
-        write_outfile(output_path.format(region), paths, path_map, conversion_array, attribute_matrix[0])
 
 main()

@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 
 from collections import OrderedDict
-from dbfread import DBF, FieldParser
 
 
 class NHDTable(pd.DataFrame):
@@ -23,12 +22,15 @@ class NHDTable(pd.DataFrame):
 
 
 def read_dbf(dbf_file):
+    from dbfread import DBF, FieldParser
+
     class MyFieldParser(FieldParser):
         def parse(self, field, data):
             try:
                 return FieldParser.parse(self, field, data)
             except ValueError:
                 return None
+
     try:
         dbf = DBF(dbf_file)
         table = pd.DataFrame(iter(dbf))
@@ -39,6 +41,7 @@ def read_dbf(dbf_file):
     return table
 
 
+# NHD regions and the states that overlap
 nhd_states = OrderedDict((('01', {"ME", "NH", "VT", "MA", "CT", "RI", "NY"}),
                           ('02', {"VT", "NY", "PA", "NJ", "MD", "DE", "WV", "DC", "VA"}),
                           ('03N', {"VA", "NC", "SC", "GA"}),
@@ -47,7 +50,7 @@ nhd_states = OrderedDict((('01', {"ME", "NH", "VT", "MA", "CT", "RI", "NY"}),
                           ('04', {"WI", "MN", "MI", "IL", "IN", "OH", "PA", "NY"}),
                           ('05', {"IL", "IN", "OH", "PA", "WV", "VA", "KY", "TN"}),
                           ('06', {"VA", "KY", "TN", "NC", "GA", "AL", "MS"}),
-                          ('07', {"MN", "WI", "SD", "IA", "IL", "MO"}),
+                          ('07', {"MN", "WI", "SD", "IA", "IL", "MO", "IN"}),
                           ('08', {"MO", "KY", "TN", "AR", "MS", "LA"}),
                           ('09', {"ND", "MN", "SD"}),
                           ('10U', {"MT", "ND", "WY", "SD", "MN", "NE", "IA"}),
@@ -61,3 +64,5 @@ nhd_states = OrderedDict((('01', {"ME", "NH", "VT", "MA", "CT", "RI", "NY"}),
                           ('17', {"WA", "ID", "MT", "OR", "WY", "UT", "NV"}),
                           ('18', {"OR", "NV", "CA"})))
 
+# All states
+states = sorted(set().union(*nhd_states.values()))
