@@ -66,5 +66,5 @@ target/
 .idea/
 
 # Project
-Development/
+Development/**
 
