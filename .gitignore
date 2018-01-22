@@ -1,5 +1,6 @@
 # SAM Input Data Files
-# bin/
+#bin/
+#Development/
 
 .DS_Store
 
@@ -63,4 +64,7 @@ target/
 
 # PyCharm
 .idea/
+
+# Project
+Development/**
 

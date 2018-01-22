@@ -1,4 +1,4 @@
-from Tool.params import depth_bins
+from Preprocessing.params import depth_bins
 
 
 class FieldSet(object):
@@ -33,25 +33,27 @@ component_fields = FieldSet([('slopegradwta', 'slope'),
 
 # Fields in Kurt's Crop Dates table (JCH - work on this)
 kurt_fields = FieldSet([('State', 'state'),
-                        ('Weather-crop', 'weather-crop'),
                         ('season', 'season'),
                         ('irr_pct', 'irr_pct'),
                         ('irr_type', 'irr_type'),
-                        ('cropprac', 'crop_prac')])
+                        ('cropprac', 'crop_prac'),
+                        ('WeatherID', 'weather_grid'),
+                        ('CDL', 'gen_class')])
 
 event_labels = [('plnt', 'plant'),
                 ('blm', 'bloom'),
                 ('mat', 'maturity'),
                 ('harv', 'harvest')]
 time_labels = [('beg', 'begin'),
-               ('end', 'end'),
-               ('Act', 'active')]
+               ('end', 'end')]
 
 crop_event_fields = FieldSet([("{}{}".format(label[0], time[0]), "{}_{}".format(label[1], time[1]))
+                              for label in event_labels for time in time_labels] +
+                             [("{}{}Act".format(label[0], time[0]), "{}_{}_active".format(label[1], time[1]))
                               for label in event_labels for time in time_labels])
 
 crop_params_fields = FieldSet([('covmax', 'covmax'),
-                               ('gen_class', 'gen_class'),
+                               ('cdl', 'gen_class'),
                                ('cintcp', 'cintcp'),
                                ('cfact_fal', 'cfact_fal'),
                                ('ManningsN', 'mannings_n'),
@@ -62,7 +64,7 @@ curve_number_fields = ['cn_{}_{}'.format(_type, hsg) for _type in ('ag', 'fallow
 
 ### Custom fields (created in-script)
 depth_fields = ["{}_{}".format(field[1], depth) for field in chorizon_fields for depth in depth_bins]
-soil_fields = ['kwfact', 'uslels', 'hsg']
+soil_fields = ['kwfact', 'uslels', 'hsg', 'uslep']
 combo_fields = ['weather', 'cdl', 'soilagg']
 met_fields = ['anetd', 'lat_x', 'lon_x', 'rainfall', 'MLRA']
 
@@ -70,7 +72,7 @@ met_fields = ['anetd', 'lat_x', 'lon_x', 'rainfall', 'MLRA']
 soil_table_fields = soil_fields + depth_fields + component_fields.new
 
 scenario_matrix_fields = \
-    ['scenario'] + depth_fields + crop_event_fields.new + \
-    ['hsg', 'cn_ag', 'cn_fallow', 'kwfact', 'slope', 'slp_length', 'uslels', 'RZmax', 'sfac', 'rainfall', 'anetd',
+    ['scenario_id'] + depth_fields + crop_event_fields.new + \
+    ['hsg', 'cn_ag', 'cn_fallow', 'kwfact', 'slope', 'slope_length', 'uslels', 'root_zone_max', 'sfac', 'rainfall', 'anetd',
      'covmax', 'amxdr', 'irr_pct', 'irr_type', 'deplallw', 'leachfrac', 'crop_prac', 'uslep', 'cfact_fal', 'cfact_cov',
      'mannings_n', 'overlay']

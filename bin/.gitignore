@@ -1,4 +1,7 @@
-Preprocessed/*
+Preprocessed/**
+Layers/**
+Results/**
+Tables/**
 !Preprocessed/.gitignore
 !Preprocessed/CondensedNHD/.gitignore
 !Preprocessed/FlowFiles/.gitignore

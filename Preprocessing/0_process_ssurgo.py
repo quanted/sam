@@ -5,21 +5,23 @@ import pandas as pd
 from scipy import stats
 
 
-class StateSoil(object):
-    def __init__(self, state, ssurgo, out_path):
-        from Tool.params import depth_bins
+class RegionSoils(object):
+    def __init__(self, region, states, ssurgo, out_path):
+        from Preprocessing.params import depth_bins
 
         # Initialize variables
-        self.state = state
+        self.region = region
+        self.states = states
         self.ssurgo = ssurgo
         self.depth_bins = depth_bins
         self.out_path = out_path
 
         # Initialize paths
-        self.unaggregated_outfile = os.path.join(self.out_path, self.state + '_soil_gSSURGO_2016.txt')
-        self.aggregated_outfile = os.path.join(self.out_path, self.state + '_soil_aggregation.txt')
-        self.aggregation_map_file = os.path.join(self.out_path, self.state + '_aggregation_map.txt')
+        self.unaggregated_outfile = os.path.join(self.out_path, self.region + '_soil_gSSURGO_2016.txt')
+        self.aggregated_outfile = os.path.join(self.out_path, self.region + '_soil_aggregation.txt')
+        self.aggregation_map_file = os.path.join(self.out_path, self.region + '_aggregation_map.txt')
 
+        # Process all states in the region
         # Read data from SSURGO
         self.soil_table, self.soil_params = self.read_tables()
 
@@ -41,10 +43,9 @@ class StateSoil(object):
         self.write_to_file()
 
     def aggregate_soils(self):
-        from Tool.params import uslep_values, bins
+        from Preprocessing.params import uslep_values, bins
 
         # Sort data into bins
-
         out_data = [self.soil_table.hsg_letter]
         for field, field_bins in bins.items():
             labels = [field[:2 if field == "slope" else 1] + str(i) for i in range(1, len(field_bins))]
@@ -52,28 +53,23 @@ class StateSoil(object):
             out_data.append(sliced)
         soil_agg = pd.concat(out_data, axis=1)
 
-        soil_agg['aggregation_key'] = \
+        # Add aggregation ID
+        self.soil_table['aggregation_key'] = \
             soil_agg['hsg_letter'] + soil_agg['slope'] + soil_agg['orgC_5'] + soil_agg['sand_5'] + soil_agg['clay_5']
-
-        # Add USLEP and its adjustment (Nelson email 10/3/17)
-        for i, val in enumerate(uslep_values):
-            soil_agg.loc[soil_agg.slope == ('sl' + str(i + 1)), 'uslep'] = val
-
-        # Add aggregation ID and USLEP to soil table
-        both = pd.concat([self.soil_table, soil_agg[['aggregation_key', 'uslep']]], axis=1)
-        aggregation_map = both[['mukey', 'aggregation_key']]
+        aggregation_map = self.soil_table[['mukey', 'aggregation_key']]
 
         # Group by aggregation ID and take the mean of all properties except HSG, which will use mode
-        grouped = both.groupby('aggregation_key')
+        grouped = self.soil_table.groupby('aggregation_key')
         averaged = grouped.mean().reset_index()
         hsg = grouped['hsg'].agg(lambda x: stats.mode(x)[0][0]).to_frame().reset_index()
         del averaged['hsg']
         aggregated_soils = averaged.merge(hsg, on='aggregation_key')
 
+
         return aggregation_map, aggregated_soils
 
     def depth_weighting(self, all_components):
-        from Tool.fields import chorizon_fields, depth_fields
+        from Preprocessing.fields import chorizon_fields, depth_fields
 
         # Loop through all components
         all_data = []
@@ -107,9 +103,10 @@ class StateSoil(object):
         self.soil_table = pd.DataFrame(data=np.array(all_data), columns=['cokey', 'kwfact'] + depth_fields)
 
     def soil_attribution(self):
+        """ Merge soil table with params and get hydrologic soil group (hsg) and USLE values """
 
         def calculate_uslels(df):
-            from Tool.params import uslels_matrix
+            from Preprocessing.params import uslels_matrix
             row = (uslels_matrix.index.values < df.slope).sum()
             col = (uslels_matrix.columns.values < df.slope_length).sum()
             try:
@@ -117,8 +114,7 @@ class StateSoil(object):
             except IndexError:
                 return np.nan
 
-        """ Merge soil table with params and get hydrologic soil group (hsg) """
-        from Tool.params import hsg_to_num, num_to_hsg
+        from Preprocessing.params import hsg_to_num, num_to_hsg, uslep_values, bins
 
         # Join soil table to params table
         self.soil_table = self.soil_table.merge(self.soil_params, on='cokey')
@@ -129,8 +125,9 @@ class StateSoil(object):
                 lambda x: hsg_to_num.get(x)).max(axis=1).fillna(-1).astype(np.int32)
         self.soil_table['hsg_letter'] = self.soil_table['hsg'].map(num_to_hsg)
 
-        # Calculate USLE LS
+        # Calculate USLE LS and P values
         self.soil_table['uslels'] = self.soil_table.apply(calculate_uslels, axis=1)
+        self.soil_table['uslep'] = pd.cut(self.soil_table.slope, bins['slope'], labels=uslep_values).astype(np.float32)
 
     def identify_components(self):
         """  Identify component to be used for each map unit """
@@ -145,16 +142,24 @@ class StateSoil(object):
         return selected_components.cokey.unique()
 
     def read_tables(self):
-        from Tool.fields import chorizon_fields, component_fields
+        from Preprocessing.fields import chorizon_fields, component_fields
 
-        # Read horizon table
-        chorizon_table = self.ssurgo.fetch(self.state, 'chorizon').sort_values(['cokey', 'hzdept_r'])
+        chorizon_tables, soil_params_tables = [], []
+        for state in self.states:
+            # Read horizon table
+            chorizon_table = self.ssurgo.fetch(state, 'chorizon').sort_values(['cokey', 'hzdept_r'])
 
-        # Load other tables and join
-        component = self.ssurgo.fetch(self.state, 'component')
-        muaggatt = self.ssurgo.fetch(self.state, 'muaggatt')
-        valu1 = self.ssurgo.fetch(self.state, 'valu1')
-        soil_params = component.merge(muaggatt, on='mukey').merge(valu1, on='mukey')
+            # Load other tables and join
+            component = self.ssurgo.fetch(state, 'component')
+            muaggatt = self.ssurgo.fetch(state, 'muaggatt')
+            valu1 = self.ssurgo.fetch(state, 'valu1')
+            soil_params = component.merge(muaggatt, on='mukey').merge(valu1, on='mukey')
+
+            chorizon_tables.append(chorizon_table)
+            soil_params_tables.append(soil_params)
+
+        chorizon_table = pd.concat(chorizon_tables, axis=0)
+        soil_params = pd.concat(soil_params_tables, axis=0)
 
         # Adjust data
         chorizon_table.loc[:, 'om_r'] /= 1.724
@@ -167,7 +172,7 @@ class StateSoil(object):
         return chorizon_table, soil_params
 
     def write_to_file(self):
-        from Tool.fields import soil_table_fields
+        from Preprocessing.fields import soil_table_fields
         # Confine to output fields
         self.soil_table = self.soil_table[['mukey'] + soil_table_fields]
         self.aggregated_soils = self.aggregated_soils[['aggregation_key'] + soil_table_fields]
@@ -196,22 +201,21 @@ class SSURGOReader(object):
 
 
 def main():
-    from Tool.params import states, nhd_states
+    from Preprocessing.utilities import nhd_states
 
     # Set paths
-    ssurgo_path = os.path.join("..", "..", "NationalData", "CustomSSURGO")
-    out_path = os.path.join("..", "Output", "Soils")
+    ssurgo_path = os.path.join(r"T:\\", "NationalData", "CustomSSURGO")
+    out_path = os.path.join("..", "bin", "Preprocessed", "Soils")
 
     # Initialize SSURGO reader
     ssurgo = SSURGOReader(ssurgo_path)
+    regions = ['07']
 
     # Iterate through states
-    for state in nhd_states['07']:
-    #for state in ['RI']:
-        print("Processing {} soil...".format(state))
-
-        # Process state
-        StateSoil(state, ssurgo, out_path)
+    for region in regions:
+        print("Processing Region {} soils...".format(region))
+        states = nhd_states[region]
+        RegionSoils(region, states, ssurgo, out_path)
 
 
 main()
