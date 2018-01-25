@@ -36,11 +36,11 @@ class ScenarioMatrix(object):
         # Process curve number
         num_to_hsg.update({2: "A", 4: "B", 6: "C"})  # A/D -> A, B/D -> B, C/D -> C
         for num, hsg in num_to_hsg.items():
-            self.matrix.loc[self.matrix.hsg == num, 'cn_ag'] = self.matrix['cn_ag_' + hsg]
-            self.matrix.loc[self.matrix.hsg == num, 'cn_fallow'] = self.matrix['cn_fallow_' + hsg]
+            self.matrix.loc[self.matrix.hydro_group == num, 'cn_ag'] = self.matrix['cn_ag_' + hsg]
+            self.matrix.loc[self.matrix.hydro_group == num, 'cn_fallow'] = self.matrix['cn_fallow_' + hsg]
 
         # /D soils are evenly numbered, selected with hsg % 2 = 0
-        non_cultivated_slash_d = ((self.matrix.cultivated == 0) & (np.float32(self.matrix.hsg) % 2 == 0))
+        non_cultivated_slash_d = ((self.matrix.cultivated == 0) & (np.float32(self.matrix.hydro_group) % 2 == 0))
         self.matrix.loc[non_cultivated_slash_d, ['cn_ag', 'cn_fallow']] = \
             self.matrix[['cn_ag_D', 'cn_fallow_D']].loc[non_cultivated_slash_d]
 

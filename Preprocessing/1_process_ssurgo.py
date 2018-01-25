@@ -27,10 +27,12 @@ class RegionSoils(object):
         self.soil_table, self.soil_params = self.read_tables()
 
         print("\tSelecting components...")
-        components = self.identify_components()
+        #components = self.identify_components()
 
         print("\tDepth weighting...")
-        self.depth_weighting(components)
+        #self.depth_weighting(components)
+        #self.soil_table.to_csv("intermediate.csv")
+        self.soil_table = pd.read_csv('intermediate.csv')
 
         print("\tAdding soil attributes...")
         self.soil_attribution()
@@ -44,7 +46,7 @@ class RegionSoils(object):
         self.write_to_file()
 
     def aggregate_soils(self):
-        from params import uslep_values, bins
+        from params import bins
 
         # Sort data into bins
         out_data = [self.soil_table.hsg_letter]
@@ -62,8 +64,8 @@ class RegionSoils(object):
         # Group by aggregation ID and take the mean of all properties except HSG, which will use mode
         grouped = self.soil_table.groupby('aggregation_key')
         averaged = grouped.mean().reset_index()
-        hsg = grouped['hsg'].agg(lambda x: stats.mode(x)[0][0]).to_frame().reset_index()
-        del averaged['hsg']
+        hsg = grouped['hydro_group'].agg(lambda x: stats.mode(x)[0][0]).to_frame().reset_index()
+        del averaged['hydro_group']
         aggregated_soils = averaged.merge(hsg, on='aggregation_key')
 
         return aggregation_map, aggregated_soils
@@ -108,6 +110,7 @@ class RegionSoils(object):
                 all_data.append(local)
         self.soil_table = pd.DataFrame(data=np.array(all_data), columns=['cokey', 'kwfact'] + depth_fields)
 
+
     def soil_attribution(self):
         """ Merge soil table with params and get hydrologic soil group (hsg) and USLE values """
 
@@ -126,14 +129,15 @@ class RegionSoils(object):
         self.soil_table = self.soil_table.merge(self.soil_params, on='cokey')
 
         # New HSG code - take 'max' of two versions of hsg
-        self.soil_table['hsg'] = \
+        self.soil_table['hydro_group'] = \
             self.soil_table[['hydro_group', 'hydro_group_dominant']].applymap(
                 lambda x: hsg_to_num.get(x)).max(axis=1).fillna(-1).astype(np.int32)
-        self.soil_table['hsg_letter'] = self.soil_table['hsg'].map(num_to_hsg)
+        self.soil_table['hsg_letter'] = self.soil_table['hydro_group'].map(num_to_hsg)
 
         # Calculate USLE LS and P values
         self.soil_table['uslels'] = self.soil_table.apply(calculate_uslels, axis=1)
-        self.soil_table['uslep'] = pd.cut(self.soil_table.slope, bins['slope'], labels=uslep_values).astype(np.float32)
+        self.soil_table['uslep'] = \
+            np.array(uslep_values)[np.int16(pd.cut(self.soil_table.slope, bins['slope'], labels=False))]
 
     def identify_components(self):
         """  Identify component to be used for each map unit """
@@ -168,6 +172,7 @@ class RegionSoils(object):
         # Confine to output fields
         self.soil_table = self.soil_table[['mukey'] + soil_table_fields]
         self.aggregated_soils = self.aggregated_soils[['aggregation_key'] + soil_table_fields]
+
 
         # Write aggregation map
         self.aggregation_map.to_csv(self.aggregation_map_file, index=False)

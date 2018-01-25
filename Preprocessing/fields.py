@@ -108,16 +108,15 @@ ssurgo_fields = chorizon_fields + component_fields + muaggatt_fields + valu1_fie
 
 ### Custom fields (created in-script)
 depth_fields = ["{}_{}".format(field[1], depth) for field in chorizon_fields for depth in depth_bins]
-soil_fields = ['kwfact', 'uslels', 'hsg', 'uslep']
+soil_fields = ['kwfact', 'uslels', 'hydro_group', 'uslep']
 combo_fields = ['weather', 'cdl', 'soilagg']
 met_fields = ['anetd', 'lat_x', 'lon_x', 'rainfall', 'MLRA']
 
 # Specify fields used in output tables
-soil_table_fields = soil_fields + depth_fields + component_fields.new
+soil_table_fields = soil_fields + depth_fields
 
 scenario_matrix_fields = \
     ['scenario_id'] + depth_fields + crop_event_fields.new + \
-    ['hsg', 'cn_ag', 'cn_fallow', 'kwfact', 'slope', 'slope_length', 'uslels', 'root_zone_max', 'sfac', 'rainfall',
-     'anetd',
-     'covmax', 'amxdr', 'irr_pct', 'irr_type', 'deplallw', 'leachfrac', 'crop_prac', 'uslep', 'cfact_fal', 'cfact_cov',
-     'mannings_n', 'overlay']
+    ['hydro_group', 'cn_ag', 'cn_fallow', 'kwfact', 'slope', 'slope_length', 'uslels', 'root_zone_max', 'sfac',
+     'rainfall', 'anetd', 'covmax', 'amxdr', 'irr_pct', 'irr_type', 'deplallw', 'leachfrac', 'crop_prac', 'uslep',
+     'cfact_fal', 'cfact_cov', 'mannings_n', 'overlay']
