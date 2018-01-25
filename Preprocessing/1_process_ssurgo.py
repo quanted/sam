@@ -27,12 +27,10 @@ class RegionSoils(object):
         self.soil_table, self.soil_params = self.read_tables()
 
         print("\tSelecting components...")
-        #components = self.identify_components()
+        components = self.identify_components()
 
         print("\tDepth weighting...")
-        #self.depth_weighting(components)
-        #self.soil_table.to_csv("intermediate.csv")
-        self.soil_table = pd.read_csv('intermediate.csv')
+        self.depth_weighting(components)
 
         print("\tAdding soil attributes...")
         self.soil_attribution()
@@ -172,7 +170,6 @@ class RegionSoils(object):
         # Confine to output fields
         self.soil_table = self.soil_table[['mukey'] + soil_table_fields]
         self.aggregated_soils = self.aggregated_soils[['aggregation_key'] + soil_table_fields]
-
 
         # Write aggregation map
         self.aggregation_map.to_csv(self.aggregation_map_file, index=False)
