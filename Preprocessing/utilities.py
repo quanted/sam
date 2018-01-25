@@ -5,20 +5,22 @@ import pandas as pd
 from collections import OrderedDict
 
 
-class NHDTable(pd.DataFrame):
-    def __init__(self, region, path):
-        super().__init__()
-        self.region = region
-        self.path = path
-        self.table_path = os.path.join(path, "region_{}.npz".format(region))
+def read_gdb(dbf_file, table_name, fields=None):
+    """Reads the contents of a dbf table """
+    import ogr
 
-        data, header = self.read_table()
-        super(NHDTable, self).__init__(data=data, columns=header)
+    # Initialize file
+    driver = ogr.GetDriverByName("OpenFileGDB")
+    gdb = driver.Open(dbf_file)
 
-    def read_table(self):
-        assert os.path.isfile(self.table_path), "Table not found for region {} in {}".format(self.region, self.path)
-        data = np.load(self.table_path)
-        return data['table'], data['key']
+    # parsing layers by index
+    tables = {gdb.GetLayerByIndex(i).GetName(): i for i in range(gdb.GetLayerCount())}
+    table = gdb.GetLayer(tables[table_name])
+    table_def = table.GetLayerDefn()
+    if fields is None:
+        fields = [table_def.GetFieldDefn(i).GetName() for i in range(table_def.GetFieldCount())]
+    data = np.array([[row.GetField(f) for f in fields] for row in table])
+    return pd.DataFrame(data=data, columns=fields)
 
 
 def read_dbf(dbf_file):

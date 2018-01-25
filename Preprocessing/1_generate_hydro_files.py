@@ -2,8 +2,71 @@ import pandas as pd
 import numpy as np
 import os
 
-from Tool.functions import Navigator, HydroTable
+from Tool.functions import Navigator
 from Preprocessing.utilities import read_dbf
+
+
+class NHDTable(object):
+    def __init__(self, region, path):
+        from fields import gridcode_fields, flowline_fields, vaa_fields
+        self.region = region
+        self.path = path.format(region)
+        self.tables = \
+            [(os.path.join(self.path, "NHDPlusAttributes", "PlusFlow.dbf"), None),
+             (os.path.join(self.path, "NHDSnapshot", "Hydrography", "NHDFlowline.dbf"), flowline_fields),
+             (os.path.join(self.path, "NHDPlusAttributes", "PlusFlowlineVAA.dbf"), vaa_fields),
+             (os.path.join(self.path, "NHDPlusCatchment", "featureidgridcode.dbf"), gridcode_fields)]
+        self.erom_dir = os.path.join(self.path, "EROMExtension", "EROM_{}0001.dbf")
+
+        self.matrix = self.extract_tables()
+        self.add_erom()
+        self.calculate_attributes()
+
+    def extract_tables(self):
+        all_tables = None
+        for table, fields in self.tables:
+            table = pd.read_csv(table)
+            if fields is not None:
+                table = table.rename(columns=fields.convert)[fields.new]
+            if all_tables is None:
+                all_tables = table
+            else:
+                all_tables = all_tables.merge(table, on='comid')
+
+        return all_tables[all_tables.comid != 0]
+
+    def add_erom(self):
+        master_table = None
+        months = list(map(str, range(1, 13))) + ['ma']
+        for month in months:
+            table_path = self.erom_dir.format(month.zfill(2))
+            fields = ["comid", "q0001e", "v0001e"] if month == 'ma' else ["comid", "q0001e"]
+            erom_table = read_dbf(table_path)[fields]
+            erom_table.columns = [c.replace("0001e", month) for c in erom_table.columns]
+            if master_table is None:
+                master_table = erom_table
+            else:
+                master_table = pd.merge(master_table, erom_table, on='comid')
+        return self.matrix.merge(master_table, on='comid')
+
+    def calculate_attributes(self):
+        months = list(map(str, range(1, 13)))
+
+        # Convert units and calculate travel times
+        self.matrix['length'] = self.matrix.pop('lengthkm') * 1000.  # km -> m
+        for month in months:
+            self.matrix["q{}".format(month)] *= 2446.58  # cfs -> cmd
+        self.matrix["vma"] *= 26334.7  # f/s -> md
+        self.matrix["travel_time"] = self.matrix.length / self.matrix.vma
+
+        # Calculate surface area
+        stream_channel_a = 4.28
+        stream_channel_b = 0.55
+        cross_section = self.matrix.qma / self.matrix.pop('vma')
+        self.matrix['surface_area'] = stream_channel_a * np.power(cross_section, stream_channel_b)
+
+        # Indicate whether reaches are coastal
+        self.matrix['coastal'] = np.int16(self.matrix.pop('fcode') == 56600)
 
 
 class NavigatorBuilder(object):
@@ -195,22 +258,27 @@ class LakeFileBuilder(object):
         np.savez_compressed(outfile_path, table=reservoir_table.as_matrix(), key=reservoir_table.columns)
 
 
-def extract_flow_data(nhd_table, out_table):
-    # Specify fields to extract
-    use_fields = ["comid", "surface_area"] + ["q{}".format(month) for month in range(1, 13)]
+class FlowFileBuilder(object):
+    def __init__(self, nhd_table, out_table):
+        from fields import flow_file_fields
+        self.fields = flow_file_fields
+        self.table = nhd_table[self.fields]
+        self.out_table = out_table
 
-    # Extract fields and save to file
-    flow_table = nhd_table[use_fields]
-    np.savez_compressed(out_table, table=flow_table.as_matrix(), key=flow_table.columns.tolist())
+        self.save()
+
+    def save(self):
+        np.savez_compressed(self.out_table, table=self.table.as_matrix(), key=self.table.columns.tolist())
 
 
 def main():
     from Preprocessing.utilities import nhd_states
 
-    # Set initial paths
+    # Input paths
     nhd_path = os.path.join("..", "bin", "Preprocessed", "CondensedNHD")
-    nav_path = os.path.join("..", "bin", "Preprocessed", "Navigators")
     volume_path = os.path.join("..", "bin", "Tables", "LakeMorphometry", "region_{}.dbf")
+
+    # Output paths
     lake_output_path = os.path.join(r"..\bin\Preprocessed\LakeFiles", "region_{}.npz")
     flow_output_path = os.path.join("..", "bin", "Preprocessed", "FlowFiles", "region_{}.npz")
     navigator_output_path = os.path.join("..", "bin", "Preprocessed", "Navigators", "region_{}.npz")
@@ -223,22 +291,17 @@ def main():
     # Loop through regions
     for region in nhd_states.keys():
 
-        nhd_table = HydroTable(region, nhd_path)
+        nhd_table = NHDTable(region, nhd_path).matrix
 
         if build_flow_file:
-            extract_flow_data(nhd_table, flow_output_path.format(region))
+            FlowFileBuilder(nhd_table, flow_output_path.format(region))
 
         if build_navigator:
             NavigatorBuilder(nhd_table, navigator_output_path.format(region))
 
         if build_lake_file:
-            nav = Navigator(region, nav_path)
+            nav = Navigator(region, navigator_output_path)
             LakeFileBuilder(nhd_table, volume_path.format(region), nav, lake_output_path.format(region))
-
-
-
-
-
 
 
 main()

@@ -5,7 +5,7 @@ import pandas as pd
 
 class ScenarioMatrix(object):
     def __init__(self, region, year, combos, soil_data, crop_params, crop_dates, met_data, output_format):
-        from Preprocessing.params import genclass_lookup
+        from params import genclass_lookup
 
         self.outfile = output_format.format(region, year)
 
@@ -31,7 +31,7 @@ class ScenarioMatrix(object):
 
     def scenario_attribution(self):
         """ Join combos with soil data and assign curve numbers """
-        from Preprocessing.params import num_to_hsg
+        from params import num_to_hsg
 
         # Process curve number
         num_to_hsg.update({2: "A", 4: "B", 6: "C"})  # A/D -> A, B/D -> B, C/D -> C
@@ -53,7 +53,7 @@ class ScenarioMatrix(object):
 
     def add_double_crops(self):
         """ Join CDL-class-specific parameters to the table and add new rows for double cropped classes """
-        from Preprocessing.params import double_crops
+        from params import double_crops
 
         # Process double crops
         self.matrix['orig_cdl'] = self.matrix['cdl']
@@ -70,7 +70,7 @@ class ScenarioMatrix(object):
 
     def finalize(self):
         """ Apply finishing touches to matrix """
-        from Preprocessing.fields import crop_event_fields, scenario_matrix_fields
+        from fields import crop_event_fields, scenario_matrix_fields
 
         # Fill incomplete data (irrtype - 0, crop_dates - 1, cn - 0
         self.matrix.loc[:, crop_event_fields.new].fillna(1, inplace=True)
@@ -106,7 +106,7 @@ class Recipes(object):
 
 
 def read_tables(crop_params_path, crop_dates_path, metfile_path):
-    from Preprocessing.fields import kurt_fields, crop_event_fields, crop_params_fields
+    from fields import kurt_fields, crop_event_fields, crop_params_fields
 
     # Read and modify crop dates
     crop_dates_fields = crop_event_fields + kurt_fields
@@ -152,7 +152,7 @@ def read_soils(region, soil_path, aggregate):
 
 
 def main():
-    from Preprocessing.utilities import nhd_states
+    from utilities import nhd_states
 
     # Specify paths here
     combo_path = os.path.join("..", "bin", "Preprocessed", "Combos")
@@ -166,7 +166,7 @@ def main():
     # Specify run parameters here
     regions = ['07']  # all regions: sorted(nhd_states.keys())
     years = ['2010']
-    generate_recipes = False
+    generate_recipes = True
     aggregate = True
 
     print("Reading tables...")

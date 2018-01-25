@@ -4,7 +4,7 @@ import math
 import pandas as pd
 import numpy as np
 from numba import njit
-from Tool.functions import MemoryMatrix
+from functions import MemoryMatrix
 
 
 class InputMatrix(pd.DataFrame):
@@ -429,7 +429,7 @@ def process_erosion(num_records, slope, manning_n, runoff, rain, cn, usle_klscp,
 
 
 def main():
-    input_file = os.path.join("..", "bin", "Preprocessed", "ScenarioMatrices", "IN_scenarios_agg_101017.txt")
+    input_file = os.path.join("..", "bin", "Preprocessed", "ScenarioMatrices", "r07_2010.csv")
     metfile_memmap = os.path.join("..", "bin", "Preprocessed", "MetTables", "metfile")
     output_memmap = os.path.join("..", "bin", "Preprocessed", "Scenarios", "in1010")
 
