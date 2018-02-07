@@ -45,16 +45,17 @@ flow_file_fields = ["comid", "surface_area"] + ["q{}".format(month) for month in
 """
 SSURGO
 """
-chorizon_fields = FieldSet([('kwfact', 'kwfact', np.float32),
-                            ('om_r', 'orgC', np.float32),
-                            ('dbthirdbar_r', 'bd', np.float32),
-                            ('wthirdbar_r', 'fc', np.float32),
-                            ('wfifteenbar_r', 'wp', np.float32),
-                            ('ph1to1h2o_r', 'pH', np.float32),
-                            ('sandtotal_r', 'sand', np.float32),
-                            ('claytotal_r', 'clay', np.float32),
-                            ('hzdept_r', 'horizon_top', np.float32),
-                            ('hzdepb_r', 'horizon_bottom', np.float32)])
+depth_weighted_fields = FieldSet([('om_r', 'orgC', np.float32),
+                                  ('dbthirdbar_r', 'bd', np.float32),
+                                  ('wthirdbar_r', 'fc', np.float32),
+                                  ('wfifteenbar_r', 'wp', np.float32),
+                                  ('ph1to1h2o_r', 'pH', np.float32),
+                                  ('sandtotal_r', 'sand', np.float32),
+                                  ('claytotal_r', 'clay', np.float32)])
+
+horizon_fields = FieldSet([('kwfact', 'kwfact', np.float32),
+                           ('hzdept_r', 'horizon_top', np.float32),
+                           ('hzdepb_r', 'horizon_bottom', np.float32)])
 
 component_fields = FieldSet([('cokey', 'cokey', np.float32),
                              ('slopelenusle_r', 'slope_length', np.float32),
@@ -66,6 +67,9 @@ muaggatt_fields = FieldSet([('slopegradwta', 'slope', np.float32),
                             ('hydgrpdcd', 'hydro_group_dominant', 'str')])
 
 valu1_fields = FieldSet([('rootznemc', 'root_zone_max', np.float32)])
+
+chorizon_fields = horizon_fields + depth_weighted_fields
+depth_bin_fields = ["{}_{}".format(field[1], depth) for field in depth_weighted_fields for depth in depth_bins]
 
 """
 Crop params
@@ -81,6 +85,7 @@ kurt_fields = FieldSet([('State', 'state', 'str'),
                         ('CDL', 'gen_class', np.int32)])
 
 event_labels = [('plnt', 'plant'),
+                ('emrg', 'emergence'),
                 ('blm', 'bloom'),
                 ('mat', 'maturity'),
                 ('harv', 'harvest')]
@@ -93,7 +98,6 @@ crop_event_fields = FieldSet([("{}{}".format(label[0], time[0]), "{}_{}".format(
                               for label in event_labels for time in time_labels])
 
 crop_params_fields = FieldSet([('covmax', 'covmax', np.float32),
-                               ('cdl', 'gen_class', np.int32),
                                ('cintcp', 'cintcp', np.float32),
                                ('cfact_fal', 'cfact_fal', np.float32),
                                ('ManningsN', 'mannings_n', np.float32),
@@ -104,19 +108,15 @@ curve_number_fields = ['cn_{}_{}'.format(_type, hsg) for _type in ('ag', 'fallow
 
 ### Groups
 nhd_fields = plus_flow_fields + gridcode_fields + flowline_fields + vaa_fields
-ssurgo_fields = chorizon_fields + component_fields + muaggatt_fields + valu1_fields
+ssurgo_fields = depth_weighted_fields + component_fields + muaggatt_fields + valu1_fields
 
-### Custom fields (created in-script)
-depth_fields = ["{}_{}".format(field[1], depth) for field in chorizon_fields for depth in depth_bins]
-soil_fields = ['kwfact', 'uslels', 'hydro_group', 'uslep']
-combo_fields = ['weather', 'cdl', 'soilagg']
-met_fields = ['anetd', 'lat_x', 'lon_x', 'rainfall', 'MLRA']
 
 # Specify fields used in output tables
-soil_table_fields = soil_fields + depth_fields
+soil_table_fields = ['kwfact', 'uslels', 'hydro_group', 'uslep', 'root_zone_max', 'slope', 'slope_length'] + \
+                     depth_bin_fields
 
 scenario_matrix_fields = \
-    ['scenario_id'] + depth_fields + crop_event_fields.new + \
+    ['scenario_id', 'state'] + depth_bin_fields + crop_event_fields.new + \
     ['hydro_group', 'cn_ag', 'cn_fallow', 'kwfact', 'slope', 'slope_length', 'uslels', 'root_zone_max', 'sfac',
      'rainfall', 'anetd', 'covmax', 'amxdr', 'irr_pct', 'irr_type', 'deplallw', 'leachfrac', 'crop_prac', 'uslep',
      'cfact_fal', 'cfact_cov', 'mannings_n', 'overlay']

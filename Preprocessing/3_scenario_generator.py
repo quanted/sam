@@ -170,7 +170,9 @@ class Scenario(object):
     def plant_growth(self):
 
         if not any(map(math.isnan, (self.plntbeg, self.harvbeg))):
-            emerg_beg = int(self.plntbeg) + 7
+
+            # JCH - revisit all of this
+            emerg_beg = int(self.plntbeg)
             mat_beg = int((int(self.plntbeg) + int(self.harvbeg)) / 2)
             emergence = ((self.met.new_years + np.timedelta64(emerg_beg + 7, 'D')) - self.met.start_date).astype(int)
             maturity = ((self.met.new_years + np.timedelta64(mat_beg, 'D')) - self.met.start_date).astype(int)
@@ -193,8 +195,7 @@ class Scenario(object):
                             self.bd_5, self.fc_5, self.wp_5, self.bd_20, self.fc_20, self.wp_20)
 
         # USLE P factor - Default values for contouring practice, crop_prac = 1 (from PRZM, SWAT)
-        uslep = uslep_values[np.argmin(self.slope > slope_range) - 1]
-        usle_klscp = self.kwfact * self.uslels * usle_c_factor * uslep
+        usle_klscp = self.kwfact * self.uslels * usle_c_factor * self.uslep
 
         return cn, bulk_density, field_m, soil_water_m, wilt_m, depth, usle_klscp
 

@@ -4,20 +4,21 @@ import pandas as pd
 
 
 class ScenarioMatrix(object):
-    def __init__(self, region, year, combos, soil_data, crop_params, crop_dates, met_data, output_format):
-        from params import genclass_lookup
+    def __init__(self, region, year, combos, soil_data, crop_params, crop_dates, met_data, qc_file, output_format):
 
+        # Set paths
         self.outfile = output_format.format(region, year)
+        self.qc_table = pd.read_csv(qc_file).set_index('parameter')
+        self.qc_outfile = self.outfile.rstrip(".csv") + "_qa.csv"
 
         # Use only unique combinations of weather grid, cdl, and soil id
         self.matrix = combos[['weather_grid', 'cdl', 'soil_id', 'scenario_id']].drop_duplicates()
-        self.matrix = self.matrix.merge(genclass_lookup, on='cdl', how='left')
 
-        # Add double crops
+        # Create duplicate scenarios for double-cropped classes
         self.add_double_crops()
 
-        # Merge with tables
-        self.matrix = self.matrix.merge(crop_params, on='gen_class', how='left')
+        # Merge all tables
+        self.matrix = self.matrix.merge(crop_params, left_on='cdl', right_on='gen_class', how='left')
         self.matrix = self.matrix.merge(crop_dates, on=('weather_grid', 'gen_class'), how='left')
         self.matrix = self.matrix.merge(soil_data, on="soil_id", how="left")
         self.matrix = self.matrix.merge(met_data, left_on='weather_grid', right_on='stationID', how='left')
@@ -30,10 +31,9 @@ class ScenarioMatrix(object):
         self.save()
 
     def scenario_attribution(self):
-        """ Join combos with soil data and assign curve numbers """
-        from params import num_to_hsg
 
         # Process curve number
+        from params import num_to_hsg
         num_to_hsg.update({2: "A", 4: "B", 6: "C"})  # A/D -> A, B/D -> B, C/D -> C
         for num, hsg in num_to_hsg.items():
             self.matrix.loc[self.matrix.hydro_group == num, 'cn_ag'] = self.matrix['cn_ag_' + hsg]
@@ -50,6 +50,16 @@ class ScenarioMatrix(object):
         # Assign snowmelt factor (sfac)
         self.matrix['sfac'] = 0.36
         self.matrix.loc[self.matrix.cdl.isin((60, 70, 140, 190)), 'sfac'] = .16
+
+        # Assign missing crop dates
+        empty = pd.isnull(self.matrix[['plant_begin', 'emergence_begin', 'maturity_begin', 'harvest_begin']])
+        emergence = ~empty.plant_begin & empty.emergence_begin
+        maturity = ~empty.plant_begin & ~empty.harvest_begin & empty.maturity_begin
+
+        # Emergence 7 days after planting, maturity halfway between plant and harvest
+        self.matrix.loc[emergence, 'emergence_begin'] = self.matrix.plant_begin[emergence] + 7
+        self.matrix.loc[maturity, 'maturity_begin'] = \
+            ((self.matrix.plant_begin + self.matrix.harvest_begin) / 2)[maturity]
 
     def add_double_crops(self):
         """ Join CDL-class-specific parameters to the table and add new rows for double cropped classes """
@@ -69,16 +79,29 @@ class ScenarioMatrix(object):
         self.matrix = pd.concat([self.matrix, new_data], axis=0)
 
     def finalize(self):
-        """ Apply finishing touches to matrix """
-        from fields import crop_event_fields, scenario_matrix_fields
+        """ Perform a quality check and fill missing data """
+        from fields import scenario_matrix_fields
 
-        # Fill incomplete data (irrtype - 0, crop_dates - 1, cn - 0
-        self.matrix.loc[:, crop_event_fields.new].fillna(1, inplace=True)
-        self.matrix.loc[:, 'irr_type'].fillna(0, inplace=True)
-        self.matrix.loc[:, ['cn_ag', 'cn_fallow']].fillna(0, inplace=True)
-
-        # Trim to fields needed for output
+        # Trim
         self.matrix = self.matrix[scenario_matrix_fields].reset_index(drop=True)
+        self.qc_table = self.qc_table.drop('cintcp')  # jch - temporary
+
+        # Flag missing data
+        flags = pd.isnull(self.matrix)[self.qc_table.index.values].mul(self.qc_table.blank_flag)
+
+        # Flag out-of-range data
+        for test in ('general', 'range'):
+            ranges = self.qc_table[[test + "_min", test + "_max", test + "_flag"]].dropna().astype(np.int8)
+            for param, (param_min, param_max, flag) in ranges.iterrows():
+                out_of_range = (self.matrix[param] < param_min) | (self.matrix[param] > param_max)
+                if out_of_range.any():
+                    flags.loc[out_of_range, param] = np.maximum(flags.loc[out_of_range, param].as_matrix(), flag)
+
+        # Write QC file
+        flags.to_csv(self.qc_outfile)
+
+        # Fill missing data
+        self.matrix.fillna(self.qc_table.fill_value, inplace=True)
 
     def save(self):
         self.matrix.to_csv(os.path.join(self.outfile), index=False)
@@ -86,11 +109,11 @@ class ScenarioMatrix(object):
 
 class Recipes(object):
     def __init__(self, region, year, combos, output_format):
-        self.outfile = os.path.join(output_format, "r{}_{}.npz".format(region, year))
+        self.outfile = output_format.format(region, year)
         self.comids = combos.comid.as_matrix()
         self.recipes = combos[['scenario_id', 'area']]
 
-        # Generate a map of which rows correspond to which COMIDs
+        # Generate a map of which rows correspond to which comids
         self.recipe_map = self.map_recipes()
 
         # Save to file
@@ -102,6 +125,8 @@ class Recipes(object):
         return np.vstack((self.comids[first_rows], first_rows, last_rows)).T
 
     def save(self):
+        if not os.path.exists(os.path.dirname(self.outfile)):
+            os.makedirs(os.path.dirname(self.outfile))
         np.savez_compressed(self.outfile, data=self.recipes.as_matrix(), map=self.recipe_map)
 
 
@@ -118,6 +143,7 @@ def read_tables(crop_params_path, crop_dates_path, metfile_path):
 
     # Read crop params
     crop_params = pd.read_csv(crop_params_path).rename(columns=crop_params_fields.convert)
+    del crop_params['cdl']
 
     # Read table with weather grid parameters
     met_data = pd.read_csv(metfile_path)
@@ -126,7 +152,7 @@ def read_tables(crop_params_path, crop_dates_path, metfile_path):
 
 
 def read_combinations(region, year, soil_path, combo_path, aggregate):
-    matrix = pd.DataFrame(**np.load(os.path.join(combo_path, "{}_{}.npz".format(region, year))), dtype=np.int32)
+    matrix = pd.DataFrame(dtype=np.int32, **np.load(os.path.join(combo_path, "{}_{}.npz".format(region, year))))
     if aggregate:
         aggregation_key = pd.read_csv(os.path.join(soil_path, "{}_aggregation_map.txt".format(region)))
         matrix = matrix.merge(aggregation_key, on='mukey', how='left')
@@ -145,7 +171,7 @@ def read_combinations(region, year, soil_path, combo_path, aggregate):
 
 
 def read_soils(region, soil_path, aggregate):
-    soil_file_format = '{}_soil_aggregation.txt' if aggregate else '{}_soil_gSSURGO_2016.txt'
+    soil_file_format = '{}_aggregated_soil.txt' if aggregate else '{}_unaggregated_soil.txt'
     soil_fields = {"aggregation_key": "soil_id", "mukey": "soil_id"}
     soil_path = os.path.join(soil_path, soil_file_format.format(region))
     return pd.read_csv(soil_path).rename(columns=soil_fields)
@@ -157,16 +183,17 @@ def main():
     # Specify paths here
     combo_path = os.path.join("..", "bin", "Preprocessed", "Combos")
     soil_path = os.path.join("..", "bin", "Preprocessed", "Soils")
-    crop_params_path = os.path.join("..", "bin", "Tables", "cdl_class_params.csv")
-    crop_dates_path = os.path.join("..", "bin", "Tables", "crop_genclass_120117.csv")
+    crop_params_path = os.path.join("..", "bin", "Tables", "cdl_params.csv")
+    crop_dates_path = os.path.join("..", "bin", "Tables", "crop_dates_122017.csv")
     metfile_path = os.path.join("..", "bin", "Tables", "met_data.csv")
     recipe_output_path = os.path.join("..", "bin", "Preprocessed", "RecipeFiles", "r{}_{}.npz")
     scenario_output_path = os.path.join("..", "bin", "Preprocessed", "ScenarioMatrices", "r{}_{}.csv")
+    scenario_qc_table = os.path.join("..", "bin", "Tables", "scenario_matrix_qc.csv")
 
     # Specify run parameters here
     regions = ['07']  # all regions: sorted(nhd_states.keys())
     years = ['2010']
-    generate_recipes = True
+    generate_recipes = False
     aggregate = True
 
     print("Reading tables...")
@@ -179,13 +206,16 @@ def main():
 
         for year in years:
             print("Reading combos...")
-            combos = read_combinations(region, year, soil_path, combo_path, aggregate)
-
+            # combos = read_combinations(region, year, soil_path, combo_path, aggregate)
+            # combos.to_csv('intermediate.csv')
+            combos = pd.read_csv('intermediate.csv', index_col=0)
             if generate_recipes:
                 print("Generating recipes...")
                 Recipes(region, year, combos, recipe_output_path)
 
             print("Generating scenarios...")
-            ScenarioMatrix(region, year, combos, soil_data, crop_params, crop_dates, met_data, scenario_output_path)
+            ScenarioMatrix(region, year, combos, soil_data, crop_params, crop_dates, met_data, scenario_qc_table,
+                           scenario_output_path)
+
 
 main()

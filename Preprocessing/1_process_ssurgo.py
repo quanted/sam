@@ -17,11 +17,10 @@ class RegionSoils(object):
         self.out_path = out_path
 
         # Initialize paths
-        self.unaggregated_outfile = os.path.join(self.out_path, self.region + '_soil_gSSURGO_2016.txt')
-        self.aggregated_outfile = os.path.join(self.out_path, self.region + '_soil_aggregation.txt')
+        self.pwc_outfile = os.path.join(self.out_path, self.region + '_unaggregated_soil.txt')
+        self.sam_outfile = os.path.join(self.out_path, self.region + '_aggregated_soil.txt')
         self.aggregation_map_file = os.path.join(self.out_path, self.region + '_aggregation_map.txt')
 
-        # Process all states in the region
         # Read data from SSURGO
         print("\tReading SSURGO data...")
         self.soil_table, self.soil_params = self.read_tables()
@@ -69,7 +68,7 @@ class RegionSoils(object):
         return aggregation_map, aggregated_soils
 
     def depth_weighting(self, all_components):
-        from fields import chorizon_fields, depth_fields
+        from fields import depth_weighted_fields, depth_bin_fields
 
         # Adjust data
         self.soil_table.loc[:, 'orgC'] /= 1.724
@@ -97,8 +96,8 @@ class RegionSoils(object):
                 # Trim to horizons in top 100 cm and interpolate
                 component_table = component_table[component_table.horizon_top < 100]
                 thickness = np.int16((component_table.horizon_bottom - component_table.horizon_top).values)
-                soil = np.repeat(component_table[chorizon_fields.new].as_matrix(), thickness, axis=0)[:100]
-                soil = pd.DataFrame(soil, columns=chorizon_fields.new)
+                soil = np.repeat(component_table[depth_weighted_fields.new].as_matrix(), thickness, axis=0)[:100]
+                soil = pd.DataFrame(soil, columns=depth_weighted_fields.new)
 
                 # Group by horizon and compute averages
                 soil['horizon'] = \
@@ -106,8 +105,7 @@ class RegionSoils(object):
                 averages = soil.groupby('horizon').mean()
                 local = np.concatenate((np.array([component, kwfact]), averages.T.values.flatten()))
                 all_data.append(local)
-        self.soil_table = pd.DataFrame(data=np.array(all_data), columns=['cokey', 'kwfact'] + depth_fields)
-
+        self.soil_table = pd.DataFrame(data=np.array(all_data), columns=['cokey', 'kwfact'] + depth_bin_fields)
 
     def soil_attribution(self):
         """ Merge soil table with params and get hydrologic soil group (hsg) and USLE values """
@@ -154,6 +152,7 @@ class RegionSoils(object):
         horizon_tables, component_tables = [], []
         for state in self.states:
             horizons, components = self.ssurgo.fetch(state)
+            components['state'] = state
             component_tables.append(components)
             horizon_tables.append(horizons)
         chorizon_table = pd.concat(horizon_tables, axis=0)
@@ -167,18 +166,19 @@ class RegionSoils(object):
 
     def write_to_file(self):
         from fields import soil_table_fields
+
         # Confine to output fields
-        self.soil_table = self.soil_table[['mukey'] + soil_table_fields]
+        self.soil_table = self.soil_table[['state', 'mukey', 'cokey'] + soil_table_fields]
         self.aggregated_soils = self.aggregated_soils[['aggregation_key'] + soil_table_fields]
 
         # Write aggregation map
         self.aggregation_map.to_csv(self.aggregation_map_file, index=False)
 
         # Write aggregated
-        self.soil_table.reset_index(drop=True).to_csv(self.unaggregated_outfile, index=False, float_format='%3.2f')
+        self.soil_table.reset_index(drop=True).to_csv(self.pwc_outfile, index=False, float_format='%3.2f')
 
         # Write averaged
-        self.aggregated_soils.reset_index(drop=True).to_csv(self.aggregated_outfile, index=False, float_format='%3.2f')
+        self.aggregated_soils.reset_index(drop=True).to_csv(self.sam_outfile, index=False, float_format='%3.2f')
 
 
 class SSURGOReader(object):

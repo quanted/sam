@@ -279,7 +279,7 @@ def main():
     volume_path = os.path.join("..", "bin", "Tables", "LakeMorphometry", "region_{}.dbf")
 
     # Output paths
-    lake_output_path = os.path.join(r"..\bin\Preprocessed\LakeFiles", "region_{}.npz")
+    lake_output_path = os.path.join("..", "bin", "Preprocessed", "LakeFiles", "region_{}.npz")
     flow_output_path = os.path.join("..", "bin", "Preprocessed", "FlowFiles", "region_{}.npz")
     navigator_output_path = os.path.join("..", "bin", "Preprocessed", "Navigators", "region_{}.npz")
 

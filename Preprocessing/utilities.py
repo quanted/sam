@@ -5,6 +5,12 @@ import pandas as pd
 from collections import OrderedDict
 
 
+class FieldMatrix(object):
+    def __init__(self, path):
+        self.matrix = pd.read_csv(path)
+        self.matrix['data_type'] = [eval(data_type) for data_type in self.matrix.pop('data_type')]
+
+
 def read_gdb(dbf_file, table_name, fields=None):
     """Reads the contents of a dbf table """
     import ogr
@@ -68,3 +74,7 @@ nhd_states = OrderedDict((('01', {"ME", "NH", "VT", "MA", "CT", "RI", "NY"}),
 
 # All states
 states = sorted(set().union(*nhd_states.values()))
+
+a = FieldMatrix(os.path.join("..", "bin", "Tables", "fields_and_qc.csv"))
+
+print(a.matrix)
