@@ -1,0 +1,8 @@
+kwfact selection - != 'O' and 'H' ?
+thickness of top layer for all layers?
+horizon count: depthbin horizons don't match with components, so what's happening with num_horizons?
+A/D B/D etc soils - leachpot
+uslels nan value, impartial table
+how is slp_length (slopelenusle_r) filled if it's not in the table (eg 12251740)
+also lots of soils without data for lower horizons in chorizon
+what's the deal with the noncultivated thing in generate_final_scenarios?

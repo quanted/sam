@@ -34,7 +34,7 @@ class MemoryMatrix(object):
             output = array[index if aliased else self.lookup.get(index)]
         except IndexError:
             if verbose:
-                print("{} not found".format(get_index))
+                print("{} not found".format(index))
             output = None
         del array
         return output

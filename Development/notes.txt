@@ -1,0 +1,16 @@
+Rewrite overlay function
+
+Where are all these LUT and other tables coming from?
+    * Some can be replaced with pointers to original dataset, or easily replicated
+
+Get rid of all header specifications in the main body of code. Header should be in table
+
+CDL reclass doesn't seem to get used in recipe generator. Is this the problem?
+Also not used in combo aggregator
+
+Possible culprits:
+    2_aggregate_combos.py - the whole thing
+    4_generate_recipes.py - CDL reclass not used
+
+
+Too much data in recipes?  Loops through all states for each HUC8?

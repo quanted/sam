@@ -1,7 +1,21 @@
 
 # To do (JCH):
 # Better inspections: check for (and report on) dates, missing data (scenarios, etc), other failures
-# Remind me - what's the deal with outlets?
 # Crop groups - where?
 # Years (manual years)
 
+* De-ESRIfy
+
+* Rebuild 'extract_ssurgo' script, build in functionality to preserve field types
+
+* Maybe even build a 'streamline ssurgo' companion to streamline NHD
+
+* Get rid of RecipeMaps - write recipes directly to map
+
+* Get rid of CustomSSURGO - process SSURGO directly
+
+* Clean up generate_hydro_files
+
+* Clean up scenarios_and_recipes
+
+* Move some scenario processing stuff from scenario_generator into scenarios_and_recipes
