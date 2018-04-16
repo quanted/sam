@@ -671,7 +671,6 @@ class Scenarios(object):
                 assert self.i.applications.shape[1] == 11, "Invalid application matrix, should have 11 columns"
 
                 # Calculate the daily input of pesticide to the soil and plant canopy
-
                 application_mass = \
                     pesticide_to_field(self.i.applications, self.i.new_year, crop, plant_dates, rain, n == 47646)
 
@@ -971,6 +970,7 @@ def pesticide_to_field(applications, new_years, active_crop, event_dates, rain, 
     for i in range(applications.shape[0]):
 
         crop, event, offset, canopy, step, window1, pct1, window2, pct2, effic, rate = applications[i]
+        diagnostic = False
         if diagnostic:
             print("sam.functions.pesticide to field, diagnostic is set to true, crop = active crop")
             print("print applications.shape")

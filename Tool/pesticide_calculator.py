@@ -19,8 +19,10 @@ def pesticide_calculator(input_data):
 
         # Simulate application of pesticide to all input scenarios
         print("Processing scenarios...")
+        # scenarios = Scenarios(inputs, region_id, p.input_scenario_path, region.active_reaches,
+        #                       retain=r"..\bin\deux")  # retain=r"..\bin\une"
         scenarios = Scenarios(inputs, region_id, p.input_scenario_path, region.active_reaches,
-                              retain=r"..\bin\deux")  # retain=r"..\bin\une"
+                              retain=None)
 
         # Initialize output object
         outputs = Outputs(inputs, scenarios.names, p.output_path, region.geometry, region.feature_type, demo_mode=True)
