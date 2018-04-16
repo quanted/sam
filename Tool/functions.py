@@ -985,11 +985,11 @@ def pesticide_to_field(applications, new_years, active_crop, event_dates, rain, 
                 print("b")
             for year in range(new_years.size):
                 new_year = new_years[year]
-                print(year, new_year, int(window1), int(window2))
+                # print(year, new_year, int(window1), int(window2))
                 for k in range(int(window1)):
                     date = int(new_year + event_date + offset + k)
-                    print(k, int(canopy), new_year, event_date, offset, date, daily_mass_1)
-                    print(application_mass[int(canopy), date])
+                    # print(k, int(canopy), new_year, event_date, offset, date, daily_mass_1)
+                    # print(application_mass[int(canopy), date])
                     application_mass[int(canopy), date] = daily_mass_1
                 if step:
                     for l in range(int(window2)):
