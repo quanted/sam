@@ -972,17 +972,20 @@ def pesticide_to_field(applications, new_years, active_crop, event_dates, rain, 
 
         crop, event, offset, canopy, step, window1, pct1, window2, pct2, effic, rate = applications[i]
         if diagnostic:
+            print("sam.functions.pesticide to field, diagnostic is set to true, crop = active crop")
+            print("print applications.shape")
             print(i, applications.shape[0])
+            print("print active crop")
             print(crop, crop == active_crop)
         if crop == active_crop:
             event_date = int(event_dates[int(event)])
             daily_mass_1 = rate * (pct1 / 100.) / window1
             if diagnostic:
-                print("a")
+                print("sam.functions.pesticide to field, diagnostic is set to true, calculating mass")
             if step:
                 daily_mass_2 = rate * (pct2 / 100.) / window2
-            if diagnostic:
-                print("b")
+            # if diagnostic:
+            #    print("b")
             for year in range(new_years.size):
                 new_year = new_years[year]
                 # print(year, new_year, int(window1), int(window2))
@@ -996,7 +999,7 @@ def pesticide_to_field(applications, new_years, active_crop, event_dates, rain, 
                         date = int(new_year + event_date + window1 + offset + l)
                         application_mass[int(canopy), date] = daily_mass_2
             if diagnostic:
-                print("c")
+                print("diagnostic = true, finished with this application")
     return application_mass
 
 
