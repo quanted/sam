@@ -624,7 +624,7 @@ class Scenarios(object):
             shape = np.array([int(val) for val in next(f).strip().split(",")])
         return arrays, variables, np.array(scenarios), shape[:3], shape[3:], start_date, int(shape[2])
 
-    def process_scenarios(self, chunk=5000, progress_interval=10000):
+    def process_scenarios(self, chunk=5000, progress_interval=2500):
 
         from .parameters import soil, plant
 
@@ -697,7 +697,7 @@ class Scenarios(object):
                 # Write runoff and erosion
                 processed_writer[n, [0, 2]] = array_reader[n][1:3, self.start_offset:self.end_offset]
 
-        # del array_reader, variable_reader
+        del array_reader, variable_reader
 
 
 class Outputs(object):
