@@ -697,7 +697,7 @@ class Scenarios(object):
                 # Write runoff and erosion
                 processed_writer[n, [0, 2]] = array_reader[n][1:3, self.start_offset:self.end_offset]
 
-        del array_reader, variable_reader
+        # del array_reader, variable_reader
 
 
 class Outputs(object):
