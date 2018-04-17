@@ -249,6 +249,7 @@ class Hydroregion(object):
              for us in self.nav.upstream_watershed(r, return_times=False)[0]}
         active_reaches &= upstream_reaches
         active_reaches.discard(0)
+        #active_reaches &= set(self.nav.upstream_watershed(4867727, return_times=False)[0])
 
         return active_reaches
 
@@ -567,8 +568,8 @@ class Scenarios(object):
         self.i = i
 
         # JCH - temporary, for demo
-        if region == 'mtb':
-            region = '07'
+        #if region == 'mtb':
+        #    region = '07'
 
         self.path = os.path.join(input_memmap_path, "region_" + region)
         self.keyfile_path = self.path + "_key.txt"
@@ -635,6 +636,9 @@ class Scenarios(object):
 
         # Iterate scenarios
         for n, scenario_id in enumerate(self.names):
+
+            if n == 50000:
+                break
 
             # Report progress and reset readers/writers at intervals
             if not (n + 1) % progress_interval:
