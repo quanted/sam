@@ -568,8 +568,8 @@ class Scenarios(object):
         self.i = i
 
         # JCH - temporary, for demo
-        #if region == 'mtb':
-        #    region = '07'
+        if region == 'mtb':
+           region = '07'
 
         self.path = os.path.join(input_memmap_path, "region_" + region)
         self.keyfile_path = self.path + "_key.txt"
