@@ -25,6 +25,7 @@ def pesticide_calculator(input_data):
                               retain=None)
 
         # Initialize output object
+        print("Initializing outputs...")
         outputs = Outputs(inputs, scenarios.names, p.output_path, region.geometry, region.feature_type, demo_mode=True)
 
         # Cascade downstream processing watershed recipes and performing travel time analysis
