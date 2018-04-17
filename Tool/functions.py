@@ -10,6 +10,7 @@ from collections import Iterable, OrderedDict
 from tempfile import mkstemp
 from json import encoder
 from numba import guvectorize, njit
+import logging
 
 
 class MemoryMatrix(object):
@@ -701,6 +702,9 @@ class Scenarios(object):
 
 class Outputs(object):
     def __init__(self, i, scenario_ids, output_path, geometry, feature_type, demo_mode=False):
+
+        logging.info("SAM TASK Generating Outputs... ")
+        logging.info("SAM Outputs part 1")
         self.i = i
         self.geometry = geometry
         self.scenario_ids = scenario_ids
@@ -708,18 +712,22 @@ class Outputs(object):
         self.feature_type = feature_type
         self.recipe_ids = sorted(self.geometry.index(self.feature_type))
         self.demo_mode = demo_mode
-
+        logging.info("SAM Outputs part 2")
         # Initialize output matrices
         self.output_fields = ['total_flow', 'total_runoff', 'total_mass', 'total_conc', 'benthic_conc']
         self.time_series = MemoryMatrix([self.recipe_ids, self.output_fields, self.i.n_dates])
+        logging.info("SAM Outputs part 3")
 
         # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
         self.exceedances = MemoryMatrix([self.recipe_ids, self.i.endpoints.shape[0]])
+        logging.info("SAM Outputs part 4")
 
         # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
         self.contributions = MemoryMatrix([self.recipe_ids, 2, self.i.crops])
         self.contributions.columns = np.int32(sorted(self.i.crops))
         self.contributions.header = ["cls" + str(c) for c in self.contributions.columns]
+        logging.info("SAM Outputs Completed")
+
 
     def update_contributions(self, recipe_id, scenario_index, loads):
         """ Sum the total contribution by land cover class and add to running total """
