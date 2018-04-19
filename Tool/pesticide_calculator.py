@@ -27,6 +27,7 @@ def pesticide_calculator(input_data):
         # Initialize output object
         print("Initializing outputs...")
         outputs = Outputs(inputs, scenarios.names, p.output_path, region.geometry, region.feature_type, demo_mode=True)
+        # outputs = Outputs(inputs, scenarios.names, p.output_path, region.geometry, region.feature_type, demo_mode=False)
 
         # Cascade downstream processing watershed recipes and performing travel time analysis
         for year in [2011]:  # manual years
@@ -46,6 +47,7 @@ def pesticide_calculator(input_data):
         # Write output
         print("Writing output...")
         outputs.write_output()
+        return outputs.json_output
 
 
 def main(input_data=None):

@@ -11,6 +11,25 @@ from tempfile import mkstemp
 from json import encoder
 from numba import guvectorize, njit
 import logging
+import tracemalloc
+from tracemalloc import Filter, Snapshot
+
+
+filters = [Filter(inclusive=True, filename_pattern="*requests*")]
+snapshots = []
+
+def collect_stats():
+    snapshots.append(tracemalloc.take_snapshot())
+    if len(snapshots) > 1:
+        stats = snapshots[-1].compare_to(snapshots[-2], 'lineno')
+
+        for stat in stats[:10]:
+            print(stat)
+            # print("{} new KiB {} total KiB {} new {} total memory blocks: ".format(stat.size_diff / 1024,
+            #                                                                        stat.size / 1024, stat.count_diff,
+            #                                                                        stat.count))
+            # for line in stat.traceback.format():
+            #     print(line)
 
 
 class MemoryMatrix(object):
@@ -625,7 +644,7 @@ class Scenarios(object):
             shape = np.array([int(val) for val in next(f).strip().split(",")])
         return arrays, variables, np.array(scenarios), shape[:3], shape[3:], start_date, int(shape[2])
 
-    def process_scenarios(self, chunk=5000, progress_interval=2500):
+    def process_scenarios(self, chunk=2500, progress_interval=5000):
 
         from .parameters import soil, plant
 
@@ -634,17 +653,21 @@ class Scenarios(object):
         array_reader, variable_reader = self.array_matrix.reader, self.variable_matrix.reader
         processed_writer = self.processed_matrix.writer
 
+        #tracemalloc.start()
         # Iterate scenarios
         for n, scenario_id in enumerate(self.names):
 
             # TODO: Split scenario into multiple loops where each loop stores the results in a database that are
             # merged after completion (reducing memory requirements), allowing for removal of the following two lines.
-            if n == 50000:
-                break
+            # if n == 50000:
+            #     break
 
             # Report progress and reset readers/writers at intervals
             if not (n + 1) % progress_interval:
+                #collect_stats()
                 print("{}/{}".format(n + 1, len(self.names)))
+                #tracemalloc.stop()
+                #tracemalloc.start()
 
             # Open and close read/write cursors at intervals. This seems to help
             if not n % chunk:
@@ -708,9 +731,7 @@ class Scenarios(object):
 
 class Outputs(object):
     def __init__(self, i, scenario_ids, output_path, geometry, feature_type, demo_mode=False):
-
         logging.info("SAM TASK Generating Outputs... ")
-        logging.info("SAM Outputs part 1")
         self.i = i
         self.geometry = geometry
         self.scenario_ids = scenario_ids
@@ -718,22 +739,17 @@ class Outputs(object):
         self.feature_type = feature_type
         self.recipe_ids = sorted(self.geometry.index(self.feature_type))
         self.demo_mode = demo_mode
-        logging.info("SAM Outputs part 2")
         # Initialize output matrices
         self.output_fields = ['total_flow', 'total_runoff', 'total_mass', 'total_conc', 'benthic_conc']
         self.time_series = MemoryMatrix([self.recipe_ids, self.output_fields, self.i.n_dates])
-        logging.info("SAM Outputs part 3")
-
         # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
         self.exceedances = MemoryMatrix([self.recipe_ids, self.i.endpoints.shape[0]])
-        logging.info("SAM Outputs part 4")
-
         # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
         self.contributions = MemoryMatrix([self.recipe_ids, 2, self.i.crops])
         self.contributions.columns = np.int32(sorted(self.i.crops))
         self.contributions.header = ["cls" + str(c) for c in self.contributions.columns]
+        self.json_output = {}
         logging.info("SAM Outputs Completed")
-
 
     def update_contributions(self, recipe_id, scenario_index, loads):
         """ Sum the total contribution by land cover class and add to running total """
@@ -803,6 +819,7 @@ class Outputs(object):
 
         # Convert output dict to JSON object
         out_json = json.dumps(out_json, sort_keys=False, separators=(',', ':'))
+        self.json_output = json.loads(out_json)
 
         # Write to file
         with open(out_file, 'w') as f:
@@ -838,6 +855,7 @@ class Outputs(object):
 
         # Convert output dict to JSON object
         out_json = json.dumps(out_json, sort_keys=False, separators=(',', ':'))
+        self.json_output = json.loads(out_json)
 
         # Write to file
         with open(out_file, 'w') as f:
