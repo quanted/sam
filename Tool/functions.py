@@ -822,8 +822,8 @@ class Outputs(object):
         self.json_output = json.loads(out_json)
 
         # Write to file
-        with open(out_file, 'w') as f:
-            f.write(out_json)
+        # with open(out_file, 'w') as f:
+        #     f.write(out_json)
 
     def write_demo(self, fields):
         # Initialize JSON output
@@ -858,14 +858,14 @@ class Outputs(object):
         self.json_output = json.loads(out_json)
 
         # Write to file
-        with open(out_file, 'w') as f:
-            f.write(out_json)
+        # with open(out_file, 'w') as f:
+        #     f.write(out_json)
 
     def write_output(self):
 
         # Create output directory
-        if not os.path.isdir(self.output_dir):
-            os.makedirs(self.output_dir)
+        # if not os.path.isdir(self.output_dir):
+        #     os.makedirs(self.output_dir)
 
         # Write JSON output
         if self.demo_mode:
