@@ -10,6 +10,26 @@ from collections import Iterable, OrderedDict
 from tempfile import mkstemp
 from json import encoder
 from numba import guvectorize, njit
+import logging
+import tracemalloc
+from tracemalloc import Filter, Snapshot
+
+
+filters = [Filter(inclusive=True, filename_pattern="*requests*")]
+snapshots = []
+
+def collect_stats():
+    snapshots.append(tracemalloc.take_snapshot())
+    if len(snapshots) > 1:
+        stats = snapshots[-1].compare_to(snapshots[-2], 'lineno')
+
+        for stat in stats[:10]:
+            print(stat)
+            # print("{} new KiB {} total KiB {} new {} total memory blocks: ".format(stat.size_diff / 1024,
+            #                                                                        stat.size / 1024, stat.count_diff,
+            #                                                                        stat.count))
+            # for line in stat.traceback.format():
+            #     print(line)
 
 
 class MemoryMatrix(object):
@@ -248,6 +268,7 @@ class Hydroregion(object):
              for us in self.nav.upstream_watershed(r, return_times=False)[0]}
         active_reaches &= upstream_reaches
         active_reaches.discard(0)
+        #active_reaches &= set(self.nav.upstream_watershed(4867727, return_times=False)[0])
 
         return active_reaches
 
@@ -567,7 +588,7 @@ class Scenarios(object):
 
         # JCH - temporary, for demo
         if region == 'mtb':
-            region = '07'
+           region = '07'
 
         self.path = os.path.join(input_memmap_path, "region_" + region)
         self.keyfile_path = self.path + "_key.txt"
@@ -623,7 +644,7 @@ class Scenarios(object):
             shape = np.array([int(val) for val in next(f).strip().split(",")])
         return arrays, variables, np.array(scenarios), shape[:3], shape[3:], start_date, int(shape[2])
 
-    def process_scenarios(self, chunk=5000, progress_interval=10000):
+    def process_scenarios(self, chunk=2500, progress_interval=5000):
 
         from .parameters import soil, plant
 
@@ -632,12 +653,21 @@ class Scenarios(object):
         array_reader, variable_reader = self.array_matrix.reader, self.variable_matrix.reader
         processed_writer = self.processed_matrix.writer
 
+        #tracemalloc.start()
         # Iterate scenarios
         for n, scenario_id in enumerate(self.names):
 
+            # TODO: Split scenario into multiple loops where each loop stores the results in a database that are
+            # merged after completion (reducing memory requirements), allowing for removal of the following two lines.
+            # if n == 50000:
+            #     break
+
             # Report progress and reset readers/writers at intervals
             if not (n + 1) % progress_interval:
+                #collect_stats()
                 print("{}/{}".format(n + 1, len(self.names)))
+                #tracemalloc.stop()
+                #tracemalloc.start()
 
             # Open and close read/write cursors at intervals. This seems to help
             if not n % chunk:
@@ -671,7 +701,6 @@ class Scenarios(object):
                 assert self.i.applications.shape[1] == 11, "Invalid application matrix, should have 11 columns"
 
                 # Calculate the daily input of pesticide to the soil and plant canopy
-
                 application_mass = \
                     pesticide_to_field(self.i.applications, self.i.new_year, crop, plant_dates, rain, n == 47646)
 
@@ -702,6 +731,7 @@ class Scenarios(object):
 
 class Outputs(object):
     def __init__(self, i, scenario_ids, output_path, geometry, feature_type, demo_mode=False):
+        logging.info("SAM TASK Generating Outputs... ")
         self.i = i
         self.geometry = geometry
         self.scenario_ids = scenario_ids
@@ -709,18 +739,17 @@ class Outputs(object):
         self.feature_type = feature_type
         self.recipe_ids = sorted(self.geometry.index(self.feature_type))
         self.demo_mode = demo_mode
-
         # Initialize output matrices
         self.output_fields = ['total_flow', 'total_runoff', 'total_mass', 'total_conc', 'benthic_conc']
         self.time_series = MemoryMatrix([self.recipe_ids, self.output_fields, self.i.n_dates])
-
         # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
         self.exceedances = MemoryMatrix([self.recipe_ids, self.i.endpoints.shape[0]])
-
         # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
         self.contributions = MemoryMatrix([self.recipe_ids, 2, self.i.crops])
         self.contributions.columns = np.int32(sorted(self.i.crops))
         self.contributions.header = ["cls" + str(c) for c in self.contributions.columns]
+        self.json_output = {}
+        logging.info("SAM Outputs Completed")
 
     def update_contributions(self, recipe_id, scenario_index, loads):
         """ Sum the total contribution by land cover class and add to running total """
@@ -790,10 +819,11 @@ class Outputs(object):
 
         # Convert output dict to JSON object
         out_json = json.dumps(out_json, sort_keys=False, separators=(',', ':'))
+        self.json_output = json.loads(out_json)
 
         # Write to file
-        with open(out_file, 'w') as f:
-            f.write(out_json)
+        # with open(out_file, 'w') as f:
+        #     f.write(out_json)
 
     def write_demo(self, fields):
         # Initialize JSON output
@@ -825,16 +855,17 @@ class Outputs(object):
 
         # Convert output dict to JSON object
         out_json = json.dumps(out_json, sort_keys=False, separators=(',', ':'))
+        self.json_output = json.loads(out_json)
 
         # Write to file
-        with open(out_file, 'w') as f:
-            f.write(out_json)
+        # with open(out_file, 'w') as f:
+        #     f.write(out_json)
 
     def write_output(self):
 
         # Create output directory
-        if not os.path.isdir(self.output_dir):
-            os.makedirs(self.output_dir)
+        # if not os.path.isdir(self.output_dir):
+        #     os.makedirs(self.output_dir)
 
         # Write JSON output
         if self.demo_mode:
@@ -971,32 +1002,36 @@ def pesticide_to_field(applications, new_years, active_crop, event_dates, rain, 
     for i in range(applications.shape[0]):
 
         crop, event, offset, canopy, step, window1, pct1, window2, pct2, effic, rate = applications[i]
+        diagnostic = False
         if diagnostic:
+            print("sam.functions.pesticide to field, diagnostic is set to true, crop = active crop")
+            print("print applications.shape")
             print(i, applications.shape[0])
+            print("print active crop")
             print(crop, crop == active_crop)
         if crop == active_crop:
             event_date = int(event_dates[int(event)])
             daily_mass_1 = rate * (pct1 / 100.) / window1
             if diagnostic:
-                print("a")
+                print("sam.functions.pesticide to field, diagnostic is set to true, calculating mass")
             if step:
                 daily_mass_2 = rate * (pct2 / 100.) / window2
-            if diagnostic:
-                print("b")
+            # if diagnostic:
+            #    print("b")
             for year in range(new_years.size):
                 new_year = new_years[year]
-                print(year, new_year, int(window1), int(window2))
+                # print(year, new_year, int(window1), int(window2))
                 for k in range(int(window1)):
                     date = int(new_year + event_date + offset + k)
-                    print(k, int(canopy), new_year, event_date, offset, date, daily_mass_1)
-                    print(application_mass[int(canopy), date])
+                    # print(k, int(canopy), new_year, event_date, offset, date, daily_mass_1)
+                    # print(application_mass[int(canopy), date])
                     application_mass[int(canopy), date] = daily_mass_1
                 if step:
                     for l in range(int(window2)):
                         date = int(new_year + event_date + window1 + offset + l)
                         application_mass[int(canopy), date] = daily_mass_2
             if diagnostic:
-                print("c")
+                print("diagnostic = true, finished with this application")
     return application_mass
 
 
