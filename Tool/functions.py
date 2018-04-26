@@ -659,8 +659,8 @@ class Scenarios(object):
 
             # TODO: Split scenario into multiple loops where each loop stores the results in a database that are
             # merged after completion (reducing memory requirements), allowing for removal of the following two lines.
-            # if n == 50000:
-            #     break
+            if n == 45000:
+                break
 
             # Report progress and reset readers/writers at intervals
             if not (n + 1) % progress_interval:
