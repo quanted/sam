@@ -10,6 +10,8 @@ import requests
 
 #from flask_qed.pram_flask.tasks import sam_status
 #from pram_flask.tasks import sam_status
+from celery_cgi import celery
+
 
 IN_DOCKER = "False"
 
@@ -20,6 +22,8 @@ class SamPostprocessor(object):
         self.task_id = task_id
         self.sam_data = None
         self.huc8_summary = None
+        self.status = celery.AsyncResult(self.task_id).status
+
 
     def connect_to_mongoDB(self):
         if IN_DOCKER == "False":
@@ -39,7 +43,9 @@ class SamPostprocessor(object):
     def get_sam_data(self):
         mongo_db = self.connect_to_mongoDB()
         posts = mongo_db.posts
-        data = json.loads(posts.find_one({'_id': self.task_id})["data"])
+        db_record = posts.find_one({'_id': self.task_id})
+        print("Run status:" + self.status)
+        data = json.loads(db_record["data"])
         self.sam_data = data
         return
 
