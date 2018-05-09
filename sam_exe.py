@@ -3,8 +3,6 @@ import numpy as np
 import pandas as pd
 from ..base.uber_model import UberModel, ModelSharedInputs
 
-# from ubertool_ecorest.ubertool.ubertool.base.uber_model import UberModel, ModelSharedInputs
-
 
 class SamInputs(ModelSharedInputs):
     """
@@ -177,10 +175,11 @@ class Sam(UberModel, SamInputs, SamOutputs):
         super(Sam, self).__init__()
         self.pd_obj = pd_obj
         self.pd_obj_exp = pd_obj_exp
-        self.pd_obj_out = None
+        self.pd_obj_out = pd.DataFrame(data=np.array([[0, 0], [0, 0]]), columns=["foo", "bar"])
         self.input_dict = InputDict(self.pd_obj)
 
     def execute_model(self):
         from .Tool.pesticide_calculator import pesticide_calculator
 
-        outputs = pesticide_calculator(self.input_dict)
+        result = pesticide_calculator(self.input_dict)
+        self.pd_obj_out = result

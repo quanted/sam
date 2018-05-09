@@ -5,17 +5,37 @@ import math
 import numpy as np
 import pandas as pd
 
-from collections import Iterable
+from collections import Iterable, OrderedDict
 
 from tempfile import mkstemp
 from json import encoder
 from numba import guvectorize, njit
+import logging
+import tracemalloc
+from tracemalloc import Filter, Snapshot
+
+
+filters = [Filter(inclusive=True, filename_pattern="*requests*")]
+snapshots = []
+
+def collect_stats():
+    snapshots.append(tracemalloc.take_snapshot())
+    if len(snapshots) > 1:
+        stats = snapshots[-1].compare_to(snapshots[-2], 'lineno')
+
+        for stat in stats[:10]:
+            print(stat)
+            # print("{} new KiB {} total KiB {} new {} total memory blocks: ".format(stat.size_diff / 1024,
+            #                                                                        stat.size / 1024, stat.count_diff,
+            #                                                                        stat.count))
+            # for line in stat.traceback.format():
+            #     print(line)
 
 
 class MemoryMatrix(object):
     """ A wrapper for NumPy 'memmap' functionality which allows the storage and recall of arrays from disk """
 
-    def __init__(self, dimensions, dtype=np.int32, path=None, existing=False):
+    def __init__(self, dimensions, dtype=np.float32, path=None, existing=False):
         self.dtype = dtype
         self.path = path
         self.existing = existing
@@ -34,22 +54,25 @@ class MemoryMatrix(object):
             output = array[index if aliased else self.lookup.get(index)]
         except IndexError:
             if verbose:
-                print("{} not found".format(get_index))
+                print("{} not found".format(index))
             output = None
         del array
         return output
 
     def initialize_array(self):
 
-        # Load from saved file if one is specified, else generate
-        if self.path is None:
-            self.path = mkstemp(suffix=".dat", dir=os.path.join("..", "bin", "temp"))[1]
-
         # Raise an error if there should be an existing matrix but isn't
-        if self.existing and not os.path.exists(self.path):
-            raise Exception('Specified MemoryMatrix {} not found'.format(self.path))
-        elif not self.existing:
-            np.memmap(self.path, dtype=self.dtype, mode='w+', shape=self.shape)  # Allocate memory
+        if self.existing:  #
+            if not os.path.exists(self.path):
+                raise Exception('Specified MemoryMatrix {} not found'.format(self.path))
+
+        # If a path is given but not expected to exist, create a matrix at that location.
+        # Otherwise, use a temporary file
+        else:
+            if self.path is None:
+                self.path = mkstemp(suffix=".dat", dir=os.path.join("..", "bin", "temp"))[1]
+            if not os.path.exists(self.path):
+                np.memmap(self.path, dtype=self.dtype, mode='w+', shape=self.shape)  # Allocate memory
 
     def fetch_multiple(self, indices, copy=False, verbose=False, aliased=True, return_index=False, columns=None):
 
@@ -66,7 +89,7 @@ class MemoryMatrix(object):
             indices = addresses[found]
 
         # Fetch data from memory map
-        array = np.memmap(self.path, dtype='float32', mode='c' if copy else 'r', shape=self.shape)
+        array = np.memmap(self.path, dtype='float32', mode='c' if copy else 'r+', shape=self.shape)
         out_array = array[indices] if columns is None else array[np.ix_(indices, columns)]
         del array
 
@@ -86,7 +109,7 @@ class MemoryMatrix(object):
 
     @property
     def reader(self):
-        return np.memmap(self.path, dtype=self.dtype, mode='r', shape=self.shape)
+        return np.memmap(self.path, dtype=self.dtype, mode='r+', shape=self.shape)
 
     @property
     def copy(self):
@@ -96,6 +119,71 @@ class MemoryMatrix(object):
     def writer(self):
         mode = 'r+' if os.path.isfile(self.path) else 'w+'
         return np.memmap(self.path, dtype=self.dtype, mode=mode, shape=self.shape)
+
+
+class Geometry(object):
+    def __init__(self, region, geometry_dir):
+        self.region = region
+        self.flowline_path = os.path.join(geometry_dir, "region_{}_flowlines".format(self.region))
+        self.intake_path = os.path.join(geometry_dir, "region_{}_intakes".format(self.region))
+        self.key_path = self.flowline_path + "_key.npz"
+
+        self._intakes = None
+        self._map = None
+        self._shape = None
+
+    def load_key(self):
+        data = np.load(self.key_path)
+        data_map = {comid: (start_row, end_row) for comid, start_row, end_row in data['map']}
+        shape = tuple(data['shape'])
+        return data_map, shape
+
+    def fetch(self, comid, feature_type, verbose=False):
+        if feature_type == "flowline":
+            address = self.map.get(comid)
+            if address is None and verbose:
+                print("Reach {} not found in geometry file for Region {}".format(comid, self.region))
+            elif address is not None:
+                array = np.memmap(self.flowline_path + ".dat", dtype=np.float32, shape=self.shape, mode='r+')
+                start_row, end_row = address
+                coordinates = array[start_row:end_row].tolist()
+                del array
+                return coordinates
+        elif feature_type == "intake":
+            return self.intakes.get(comid)
+        else:
+            raise ValueError("Invalid feature_type {} provided".format(feature_type))
+
+    def read_intakes(self):
+        intake_table = pd.read_csv(self.intake_path + ".csv").set_index("COMID")
+        self._intakes = {comid: row.to_dict() for comid, row in intake_table.iterrows()}
+
+    def index(self, feature_type):
+        if feature_type == "flowline":
+            return set(self.map.keys())
+        elif feature_type == "intake":
+            return set(self.intakes.keys())
+        else:
+            raise ValueError("Invalid feature_type {} provided".format(feature_type))
+
+
+    @property
+    def intakes(self):
+        if self._intakes is None:
+            self.read_intakes()
+        return self._intakes
+
+    @property
+    def map(self):
+        if self._map is None:
+            self._map, self._shape = self.load_key()
+        return self._map
+
+    @property
+    def shape(self):
+        if self._shape is None:
+            self._map, self._shape = self.load_key()
+        return self._shape
 
 
 class HydroTable(pd.DataFrame):
@@ -126,25 +214,36 @@ class Hydroregion(object):
     Contains all datasets and functions related to the NHD Plus region, including all hydrological features and links
     """
 
-    def __init__(self, region, map_path, flowfile_dir, upstream_dir, lakefile_dir):
+    def __init__(self, region, sim_type, map_dir, flowfile_dir, upstream_dir, lakefile_dir, geometry_dir):
         self.id = region
+        self.sim_type = sim_type
+        self.feature_type = "flowline" if self.sim_type == 'eco' else "intake"
 
         # Read hydrological input files
+        self.geometry = Geometry(self.id, geometry_dir)
+        if self.id == 'mtb':
+            self.id = '07'
         self.flow_file = HydroTable(self.id, flowfile_dir)
         self.lake_table = HydroTable(self.id, lakefile_dir)
         self.nav = Navigator(self.id, upstream_dir)
-        self.recipe_map = RecipeMap(self.id, map_path)
+        self.recipe_map = RecipeMap(self.id, map_dir)
 
         # Confine to available reaches and assess what's missing
+        self.geometry_index = self.geometry.index(self.feature_type)
         self.active_reaches = self.confine()
         self.run_reaches = set()
 
     def cascade(self):
+
+        from .parameters import time_of_travel as tot
+
         # Identify all outlets (and therefore, reservoirs) that exist in the current run scope
         confined_outlets = self.lake_table.outlet_comid.isin(self.active_reaches)
 
         # Confine lake table to these outlets and sort by number of upstream reservoirs
-        confined_lake_table = self.lake_table[confined_outlets].sort_values('n_upstream')
+        confined_lake_table = self.lake_table[confined_outlets]
+        confined_lake_table = confined_lake_table[confined_lake_table.residence_time >= tot.minimum_residence_time]
+        confined_lake_table.sort_values('n_upstream', inplace=True)
 
         # Loop through reservoirs in a downstream direction and process all upstream reaches
         for i, lake in confined_lake_table.iterrows():
@@ -157,14 +256,19 @@ class Hydroregion(object):
         yield remaining_reaches, None
 
     def confine(self):
+
         # Recipe/reaches that are (1) in the upstream file and (2) have a recipe file in at least 1 yr
-        map_reaches = {reach_id for reach_id, _ in self.recipe_map.lookup.keys()}
+        map_reaches = {reach_id for reach_id, _ in self.recipe_map.map.keys()}
         region_reaches = self.nav.reach_ids
         active_reaches = map_reaches & region_reaches
-        active_reaches.discard(0)
 
-        # Identify full watershed extent of reaches and get matching lakes
-        # full_watershed = {us for r in active_reaches for us in self.upstream_watershed(r, return_times=False)}
+        # Get reaches from geometry file and all associated upstream
+        upstream_reaches = \
+            {us for r in self.geometry.index(self.feature_type)
+             for us in self.nav.upstream_watershed(r, return_times=False)[0]}
+        active_reaches &= upstream_reaches
+        active_reaches.discard(0)
+        #active_reaches &= set(self.nav.upstream_watershed(4867727, return_times=False)[0])
 
         return active_reaches
 
@@ -196,12 +300,19 @@ class InputParams(object):
     """
 
     def __init__(self, input_dict):
-        from Tool.parameters import time_of_travel
+        from .parameters import time_of_travel
 
         # Read input dictionary
         self.__dict__.update(input_dict)
 
-        self.sim_type = 'manual'  # JCH - diagnostic, temporary (mtb)
+        # JCH - enables running just the Mark Twain
+        if self.region == "Mark Twain Demo":
+            self.region = 'mtb'
+        elif self.region in ('7.0', 7.0):
+            self.region = '07'
+
+        # JCH - this will be used to run multiple regions eventually (change frontend)
+        self.active_regions = [self.region]
 
         # Endpoints
         self.endpoints = pd.DataFrame(self.endpoints)
@@ -214,12 +325,9 @@ class InputParams(object):
         self.n_dates = len(self.dates)
         self.year_index = self.dates.year - self.dates.year[0]
         self.month_index = self.dates.month - 1
-        self.unique_years, self.year_length = np.unique(self.year, return_counts=True)
+        self.unique_years, self.year_length = np.unique(self.dates.year, return_counts=True)
         self.new_year = np.int32([(np.datetime64("{}-01-01".format(year)) - self.sim_date_start).astype(int)
                                   for year in self.unique_years])
-
-        # Processing extent
-        self.intakes, self.active_regions, self.active_reaches = self.processing_extent()
 
         # Initialize an impulse response matrix if convolving timesheds
         self.irf = None if not time_of_travel.gamma_convolve else ImpulseResponseMatrix(self.dates.size)
@@ -234,36 +342,8 @@ class InputParams(object):
         # To be added to front end
         self.write_contributions = True
         self.write_exceedances = True
-        self.write_time_series = True
+        self.write_time_series = False
         self.read_overlay = False
-
-    def processing_extent(self):
-        """ Determine which NHD regions need to be run to process the specified reacches """
-        from Tool.parameters import nhd_regions, paths as p
-
-        assert self.sim_type in ('eco', 'drinking_water', 'manual'), \
-            "Invalid simulation type '{}'".format(self.sim_type)
-
-        # Get the path of the table used for intakes
-        table = {'eco': None, 'drinking_water': p.drinking_water_intakes, 'manual': p.manual_intakes}[self.sim_type]
-
-        # Get reaches and regions to be processed if not running eco
-        if table is not None:
-            assert os.path.isfile(table), "Specified intake table '{}' not found".format(table)
-            intakes = pd.read_csv(table)
-            intakes['Region'] = [str(region).zfill(2) for region in intakes.Region]
-            try:
-                active_regions = sorted(np.unique(intakes.Region))
-                active_reaches = sorted(np.unique(intakes.COMID))
-            except AttributeError as e:
-                raise Exception("Invalid intake table: must have 'Region' and 'COMID' columns") from e
-        # Run everything if running eco
-        else:
-            intakes = None
-            active_regions = sorted(nhd_regions)
-            active_reaches = 'all'
-
-        return intakes, active_regions, active_reaches
 
 
 class Navigator(object):
@@ -309,29 +389,31 @@ class Navigator(object):
             return reaches, adjusted_times, warning
 
 
-class RecipeMap(object):
-    def __init__(self, recipe_path, region_id):
+class RecipeMap(MemoryMatrix):
+    def __init__(self, region_id, recipe_path):
         self.region = region_id
         self.path = os.path.join(recipe_path, "region_{}".format(self.region))
         self.key_path = self.path + "_key.npz"
 
-        self.scenario_index, self.map, self.n_rows = self.load_key()
+        self.map, self.shape, self.scenarios = self.load_key()
 
     def load_key(self):
         data = np.load(self.key_path)
-        scenario_index, comid_table = data['index'], data['map']
+        scenario_index, comid_table, shape = data['scenarios'], data['map'], data['shape']
         comid_map = {(comid, year): (start_row, end_row) for year, comid, start_row, end_row in comid_table}
-        return scenario_index, comid_map, comid_table[-1, -1]
 
-    def fetch(self, comid, year):
+        return comid_map, tuple(shape), scenario_index
+
+    def fetch(self, comid, year, aliased=False, verbose=False):
         address = self.map.get((comid, year))
-        if address is None:
+        if address is None and verbose:
             print("Reach {} not found in recipe map for Region {}".format(comid, self.region))
-        else:
-            array = np.memmap(self.table_path, dtype=np.int32, mode='r', shape=(self.n_rows, 2))
+        elif address is not None:
+            array = np.memmap(self.path + ".dat", np.int32, shape=self.shape)
             start_row, end_row = address
             areas, aliases = array[start_row:end_row].T
-            scenario_ids = self.scenario_index[aliases]
+            scenario_ids = self.scenarios[aliases]
+            del array
             return scenario_ids, areas
 
 
@@ -380,7 +462,7 @@ class Recipes(object):
     def fetch_scenarios(self, recipe_id):
         """  Fetch all scenarios and multiply by area.  For erosion, area is adjusted. """
         try:
-            scenarios, areas = self.region.recipe_map.fetch(recipe_id, self.year).T
+            scenarios, areas = self.region.recipe_map.fetch(recipe_id, self.year, aliased=True).T
         except AttributeError:
             return None, None
         else:
@@ -414,7 +496,7 @@ class Recipes(object):
     def partition_benthic(self, recipe_id, erosion, erosion_mass):
         """ Compute concentration in the benthic layer based on mass of eroded sediment """
 
-        from ..Tool.parameters import benthic
+        from .parameters import benthic
 
         surface_area = self.region.flow_file.loc[recipe_id]["surface_area"]
         soil_volume = benthic.depth * surface_area
@@ -433,7 +515,7 @@ class Recipes(object):
             if not len(self.processed) % progress_interval:
                 print("Processed {} of {} recipes".format(len(self.processed), len(self.recipe_ids)))
 
-            # Fetch time series data from all scenarios in re cipe
+            # Fetch time series data from all scenarios in recipe
             scenarios, time_series = self.fetch_scenarios(recipe_id)  # (var, date, scenario)
 
             if scenarios is not None:
@@ -477,7 +559,6 @@ class Recipes(object):
             if index is not None:
                 reaches, times = reaches[index], times[index]
             totals = np.zeros((2, self.i.n_dates))  # (mass/runoff, dates)
-            print(2, reaches.shape, times.shape, mass_and_runoff.shape)
             for tank in range(np.max(times) + 1):
                 in_tank = mass_and_runoff[times == tank].sum(axis=0)
                 if tank > 0:
@@ -502,9 +583,17 @@ class Recipes(object):
 
 
 class Scenarios(object):
-    def __init__(self, i, input_memmap_path):
+    def __init__(self, i, region, input_memmap_path, active_reaches='all', recipe_map=None, retain=None):
         self.i = i
-        self.keyfile_path = input_memmap_path + "_key.txt"
+
+        # JCH - temporary, for demo
+        if region == 'mtb':
+           region = '07'
+
+        self.path = os.path.join(input_memmap_path, "region_" + region)
+        self.keyfile_path = self.path + "_key.txt"
+        self.active_reaches = active_reaches
+        self.recipe_map = recipe_map
 
         # Load key file for interpreting input matrices
         self.arrays, self.variables, self.names, self.array_shape, self.variable_shape, self.start_date, \
@@ -514,17 +603,26 @@ class Scenarios(object):
         self.end_date = self.start_date + np.timedelta64(self.n_dates, 'D')
         self.start_offset, self.end_offset = self.date_offsets()
 
+        # Confine to active reaches
+        if active_reaches != 'all' and self.recipe_map is not None:
+            self.names = self.confine()
+
         # Initialize input matrices
         self.array_matrix = \
-            MemoryMatrix([self.names, self.arrays, self.n_dates], path=input_memmap_path + "_arrays", existing=True)
+            MemoryMatrix([self.names, self.arrays, self.n_dates], path=self.path + "_arrays.dat", existing=True)
         self.variable_matrix = \
-            MemoryMatrix([self.names, self.variables], path=input_memmap_path + "_vars", existing=True)
+            MemoryMatrix([self.names, self.variables], path=self.path + "_vars.dat", existing=True)
 
         # Initialize empty matrix for procesed scenarios
-        self.processed_matrix = MemoryMatrix([self.names, 4, i.n_dates])
+        process = retain is None or not os.path.exists(retain)
+        self.processed_matrix = MemoryMatrix([self.names, 4, i.n_dates], path=retain)
+        if process:
+            self.process_scenarios()
 
-        # Populate scenario matrix if it doesn't exist
-        self.process_scenarios()
+    def confine(self):
+        years = sorted((k[1] for k in self.recipe_map.map.keys()))
+        names = {s for y in years for r in self.active_reaches for sc, _ in self.recipe_map.fetch(r, y) for s in sc}
+        return sorted(names)
 
     def date_offsets(self):
         if self.start_date > self.i.sim_date_start:
@@ -546,7 +644,7 @@ class Scenarios(object):
             shape = np.array([int(val) for val in next(f).strip().split(",")])
         return arrays, variables, np.array(scenarios), shape[:3], shape[3:], start_date, int(shape[2])
 
-    def process_scenarios(self, chunk=5000, progress_interval=10000):
+    def process_scenarios(self, chunk=2500, progress_interval=5000):
 
         from .parameters import soil, plant
 
@@ -555,12 +653,21 @@ class Scenarios(object):
         array_reader, variable_reader = self.array_matrix.reader, self.variable_matrix.reader
         processed_writer = self.processed_matrix.writer
 
+        #tracemalloc.start()
         # Iterate scenarios
         for n, scenario_id in enumerate(self.names):
 
+            # TODO: Split scenario into multiple loops where each loop stores the results in a database that are
+            # merged after completion (reducing memory requirements), allowing for removal of the following two lines.
+            # if n == 50000:
+            #     break
+
             # Report progress and reset readers/writers at intervals
             if not (n + 1) % progress_interval:
+                #collect_stats()
                 print("{}/{}".format(n + 1, len(self.names)))
+                #tracemalloc.stop()
+                #tracemalloc.start()
 
             # Open and close read/write cursors at intervals. This seems to help
             if not n % chunk:
@@ -571,6 +678,7 @@ class Scenarios(object):
 
             # Get crop ID of scenario and find all associated crops in group
             crop = int(scenario_id.split("cdl")[1])
+
             if crop in self.i.crops:
 
                 # Read non-sequential variables from scenario and process
@@ -578,6 +686,7 @@ class Scenarios(object):
                     covmax, org_carbon, bulk_density, overlay, *plant_dates = variable_reader[n]
                 else:
                     overlay = None
+
                     covmax, org_carbon, bulk_density, *plant_dates = variable_reader[n]
 
                 # Extract arrays
@@ -593,7 +702,7 @@ class Scenarios(object):
 
                 # Calculate the daily input of pesticide to the soil and plant canopy
                 application_mass = \
-                    pesticide_to_field(self.i.applications, self.i.new_year, crop, plant_dates, rain)
+                    pesticide_to_field(self.i.applications, self.i.new_year, crop, plant_dates, rain, n == 47646)
 
                 # Calculate the daily mass of pesticide in the soil
                 pesticide_mass_soil = pesticide_to_soil(application_mass, rain, plant_factor, soil.cm_2,
@@ -621,27 +730,26 @@ class Scenarios(object):
 
 
 class Outputs(object):
-    def __init__(self, i, recipe_ids, scenario_ids, output_path):
+    def __init__(self, i, scenario_ids, output_path, geometry, feature_type, demo_mode=False):
+        logging.info("SAM TASK Generating Outputs... ")
         self.i = i
-        self.recipe_ids = sorted(recipe_ids)
+        self.geometry = geometry
         self.scenario_ids = scenario_ids
         self.output_dir = os.path.join(output_path, i.token)
-        self.write_list = self.i.active_reaches
-
-        # Initialize output JSON dict
-        self.out_json = {}
-
+        self.feature_type = feature_type
+        self.recipe_ids = sorted(self.geometry.index(self.feature_type))
+        self.demo_mode = demo_mode
         # Initialize output matrices
         self.output_fields = ['total_flow', 'total_runoff', 'total_mass', 'total_conc', 'benthic_conc']
-        self.time_series = MemoryMatrix([sorted(self.write_list), self.output_fields, self.i.n_dates])
-
+        self.time_series = MemoryMatrix([self.recipe_ids, self.output_fields, self.i.n_dates])
         # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
         self.exceedances = MemoryMatrix([self.recipe_ids, self.i.endpoints.shape[0]])
-
         # Initialize contributions matrix: loading data broken down by crop and runoff v. erosion source
         self.contributions = MemoryMatrix([self.recipe_ids, 2, self.i.crops])
         self.contributions.columns = np.int32(sorted(self.i.crops))
         self.contributions.header = ["cls" + str(c) for c in self.contributions.columns]
+        self.json_output = {}
+        logging.info("SAM Outputs Completed")
 
     def update_contributions(self, recipe_id, scenario_index, loads):
         """ Sum the total contribution by land cover class and add to running total """
@@ -673,33 +781,113 @@ class Outputs(object):
 
     def write_json(self, write_exceedances=False, write_contributions=False):
 
+        # Initialize JSON output
         encoder.FLOAT_REPR = lambda o: format(o, '.4f')
-        out_file = os.path.join(self.output_dir, "{}_json.csv".format(self.i.chemical_name))
-        out_json = {"COMID": {}}
+        out_file = os.path.join(self.output_dir, "out_json.csv")
+        out_json = OrderedDict((("type", "FeatureCollection"), ("features", [])))
+
+        # Iterate through recipes
         for recipe_id in self.recipe_ids:
-            out_json["COMID"][str(recipe_id)] = {}
+
+            # Initialize new feature
+            new_feature = self.geometry.fetch(recipe_id, self.feature_type)
+            if self.feature_type == "flowline":
+                new_feature = {"type": "Feature",
+                               "geometry": {"type": "LineString", "coordinates": new_feature},
+                               "properties": {"COMID": int(recipe_id)}}
+            else:
+                coordinates = [float(new_feature.pop(f)) for f in ("y_coord", "x_coord")]
+                new_feature = {"type": "Feature",
+                               "geometry": {"type": "Point", "coordinates": coordinates},
+                               "properties": new_feature}
+
+            # Add exceedance probabilities
             if write_exceedances:
                 exceedance_dict = dict(zip(self.i.endpoints.short_name, map(float, self.exceedances.fetch(recipe_id))))
-                out_json["COMID"][str(recipe_id)].update(exceedance_dict)
+                new_feature['properties'].update(exceedance_dict)
+
+            # Add percent contributions
             if write_contributions:
                 contributions = self.contributions.fetch(recipe_id)
                 for i, category in enumerate(("runoff", "erosion")):
                     labels = ["{}_load_{}".format(category, label) for label in self.contributions.header]
                     contribution_dict = dict(zip(labels, map(float, contributions[i])))
-                    out_json["COMID"][str(recipe_id)].update(contribution_dict)
+                    new_feature['properties'].update(contribution_dict)
 
-        out_json = json.dumps(dict(out_json), sort_keys=True, indent=4, separators=(',', ': '))
-        with open(out_file, 'w') as f:
-            f.write(out_json)
+            # Append new feature to output
+            out_json["features"].append(new_feature)
+
+        # Convert output dict to JSON object
+        out_json = json.dumps(out_json, sort_keys=False, separators=(',', ':'))
+        self.json_output = json.loads(out_json)
+
+        # Write to file
+        # with open(out_file, 'w') as f:
+        #     f.write(out_json)
+
+    def write_demo(self, fields):
+        # Initialize JSON output
+        encoder.FLOAT_REPR = lambda o: format(o, '.4f')
+        out_file = os.path.join(self.output_dir, "out_json.csv")
+        out_json = OrderedDict((("type", "FeatureCollection"), ("features", [])))
+
+        # Iterate through recipes
+        for recipe_id in self.recipe_ids:
+
+            # Initialize new feature
+            new_feature = self.geometry.fetch(recipe_id, self.feature_type)
+            if self.feature_type == "flowline":
+                new_feature = {"type": "Feature",
+                               "geometry": {"type": "LineString", "coordinates": new_feature},
+                               "properties": {"COMID": int(recipe_id)}}
+            else:
+                coordinates = [float(new_feature.pop(f)) for f in ("y_coord", "x_coord")]
+                new_feature = {"type": "Feature",
+                               "geometry": {"type": "Point", "coordinates": coordinates},
+                               "properties": new_feature}
+
+            # Add exceedance probabilities
+            for field_name, sigma in fields:
+                new_feature["properties"][field_name] = min((abs(np.random.normal(0, sigma)), 1))
+
+            # Append new feature to output
+            out_json["features"].append(new_feature)
+
+        # Convert output dict to JSON object
+        out_json = json.dumps(out_json, sort_keys=False, separators=(',', ':'))
+        self.json_output = json.loads(out_json)
+
+        # Write to file
+        # with open(out_file, 'w') as f:
+        #     f.write(out_json)
 
     def write_output(self):
 
         # Create output directory
-        if not os.path.isdir(self.output_dir):
-            os.makedirs(self.output_dir)
+        # if not os.path.isdir(self.output_dir):
+        #     os.makedirs(self.output_dir)
 
         # Write JSON output
-        self.write_json(self.i.write_exceedances, self.i.write_contributions)
+        if self.demo_mode:
+
+            demo_fields = [['acute_human', 0.1],
+                           ['acute_fw_fish', 0.1],
+                           ['chronic_fw_fish', 0.2],
+                           ['acute_fw_inv', 0.1],
+                           ['chronic_fw_inv', 0.3],
+                           ['acute_em_fish', 0.05],
+                           ['chronic_em_fish', 0.2],
+                           ['acute_em_inv', 0.2],
+                           ['chronic_em_inv', 0.3],
+                           ['acute_nonvasc_plant', 0.01],
+                           ['acute_vasc_plant', 0.1],
+                           ['pct_corn', 0.4],
+                           ['pct_soy', 0.2],
+                           ['pct_row', 0.1]]
+
+            self.write_demo(demo_fields)
+        else:
+            self.write_json(self.i.write_exceedances, self.i.write_contributions)
 
         # Write time series
         if self.i.write_time_series:
@@ -728,7 +916,7 @@ class Outputs(object):
 
         headings = [heading_lookup.get(field, "N/A") for field in fields]
 
-        for recipe_id in self.write_list:
+        for recipe_id in self.recipe_ids:
             out_file = os.path.join(self.output_dir, "time_series_{}.csv".format(recipe_id))
             out_data = self.time_series.fetch(recipe_id)[field_indices].T
             df = pd.DataFrame(data=out_data, index=self.i.dates, columns=headings)
@@ -739,13 +927,16 @@ def initialize():
     # Make sure needed subdirectories exist
     preexisting_subdirs = ["Results", "temp"]
     for subdir in preexisting_subdirs:
-        if not os.path.exists(os.path.join("..", subdir)):
-            os.mkdir(subdir)
-
-    # Purge temp folder
-    temp_folder = os.path.join("..", "temp")
-    for f in os.listdir(temp_folder):
-        os.remove(os.path.join(temp_folder, f))
+        d = os.path.join("..", "bin", subdir)
+        if not os.path.exists(d):
+            os.makedirs(d)
+        else:
+            if subdir == 'temp':
+                for f in os.listdir(d):
+                    try:
+                        os.remove(os.path.join(d, f))
+                    except PermissionError:
+                        print("Unable to get permission to delete temp file")
 
 
 @njit
@@ -793,32 +984,54 @@ def impulse_response_function(alpha, beta, length):
     def gamma_distribution(t, a, b):
         a, b = map(float, (a, b))
         tau = a * b
-        return ((t ** (a - 1)) / (((tau / a) ** a) * math.gamma(a))) * math.exp(-(a / tau) * t)
+        try:
+            return ((t ** (a - 1)) / (((tau / a) ** a) * math.gamma(a))) * math.exp(-(a / tau) * t)
+        except Exception as e:
+            print(a, b, tau, t, length)
+            print(e)
+            raise
 
     return np.array([gamma_distribution(i, alpha, beta) for i in range(length)])
 
 
 @njit
-def pesticide_to_field(applications, new_years, active_crop, event_dates, rain):
+def pesticide_to_field(applications, new_years, active_crop, event_dates, rain, diagnostic=False):
     """ Simulate timing of pesticide appplication to field """
 
     application_mass = np.zeros((2, rain.size))
     for i in range(applications.shape[0]):
+
         crop, event, offset, canopy, step, window1, pct1, window2, pct2, effic, rate = applications[i]
+        diagnostic = False
+        if diagnostic:
+            print("sam.functions.pesticide to field, diagnostic is set to true, crop = active crop")
+            print("print applications.shape")
+            print(i, applications.shape[0])
+            print("print active crop")
+            print(crop, crop == active_crop)
         if crop == active_crop:
             event_date = int(event_dates[int(event)])
             daily_mass_1 = rate * (pct1 / 100.) / window1
+            if diagnostic:
+                print("sam.functions.pesticide to field, diagnostic is set to true, calculating mass")
             if step:
                 daily_mass_2 = rate * (pct2 / 100.) / window2
+            # if diagnostic:
+            #    print("b")
             for year in range(new_years.size):
                 new_year = new_years[year]
+                # print(year, new_year, int(window1), int(window2))
                 for k in range(int(window1)):
                     date = int(new_year + event_date + offset + k)
+                    # print(k, int(canopy), new_year, event_date, offset, date, daily_mass_1)
+                    # print(application_mass[int(canopy), date])
                     application_mass[int(canopy), date] = daily_mass_1
                 if step:
-                    for l in range(window2):
+                    for l in range(int(window2)):
                         date = int(new_year + event_date + window1 + offset + l)
                         application_mass[int(canopy), date] = daily_mass_2
+            if diagnostic:
+                print("diagnostic = true, finished with this application")
     return application_mass
 
 
@@ -890,7 +1103,7 @@ def pesticide_to_water(pesticide_mass_soil, runoff, erosion, leaching, bulk_dens
 
 if __name__ == "__main__":
     import cProfile
-    from ubertool_ecorest.ubertool.ubertool.sam.Tool.pesticide_calculator import main
+    from .pesticide_calculator import main
 
     if False:
         cProfile.run('main()')

@@ -12,14 +12,13 @@ class ParameterSet(object):
 path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, "bin"))
 path_params = {
     # Points to the output of the scenario_generator.py
-    "input_scenario_path": os.path.join(path, "Preprocessed", "Scenarios", "mtb0731"),
-    "map_path": os.path.join(path, "Preprocessed", "InputMaps"),
+    "input_scenario_path": os.path.join(path, "Preprocessed", "Scenarios"),
+    "map_path": os.path.join(path, "Preprocessed", "RecipeMaps"),
     "output_path": os.path.join(path, "Results"),
     "flow_dir": os.path.join(path, "Preprocessed", "FlowFiles"),
     "lakefile_path": os.path.join(path, "Preprocessed", "LakeFiles"),
     "upstream_path": os.path.join(path, "Preprocessed", "Navigators"),
-    "drinking_water_intakes": os.path.join(path, "Preprocessed", "Intakes", "intake_locations.csv"),
-    "manual_intakes": os.path.join(path, "Preprocessed", "Intakes", "mtb_intakes.csv")
+    "geometry_path": os.path.join(path, "Preprocessed", "Geometry")
 }
 
 """ Parameters below are hardwired model parameters """
