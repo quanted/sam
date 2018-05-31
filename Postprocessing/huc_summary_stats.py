@@ -13,7 +13,7 @@ import requests
 from celery_cgi import celery
 
 IN_DOCKER = os.environ.get("IN_DOCKER")
-#IN_DOCKER = "False"
+IN_DOCKER = "False"
 
 
 class SamPostprocessor(object):
@@ -22,6 +22,7 @@ class SamPostprocessor(object):
         self.task_id = task_id
         self.sam_data = None
         self.huc8_summary = None
+        self.huc12_summary = None
         self.status = celery.AsyncResult(self.task_id).status
 
 
@@ -49,6 +50,7 @@ class SamPostprocessor(object):
         self.sam_data = data
         return
 
+
     def calc_huc_summary(self):
         sam_properties = [x["properties"] for x in self.sam_data['features']]
         data = pd.DataFrame(sam_properties)
@@ -59,19 +61,38 @@ class SamPostprocessor(object):
         huc_comid['HUC12'] = huc_comid['HUC12'].apply(replace_leading_0)
         data = data.merge(huc_comid[["COMID", "HUC12"]], on="COMID")
         data["HUC8"] = data["HUC12"].str.slice(0,8)
+        self.calc_huc8(data)
+        self.calc_huc12(data)
+        return
+
+
+    def calc_huc8(self,data):
+        print("Post-processor: calculating HUC8s")
         try:
             huc8_summary = data.groupby('HUC8').agg(['mean','max'])
             huc8_summary.columns = ["_".join(x) for x in huc8_summary.columns.ravel()]
             self.huc8_summary = huc8_summary
         except:
             self.huc8_summary = pd.DataFrame(columns=['HUC8','acute_human_mean', 'acute_human_max'])
+            return
 
+
+    def calc_huc12(self,data):
+        print("Post-processor: calculating HUC12s")
+        try:
+            huc12_summary = data.groupby('HUC12').agg(['mean','max'])
+            huc12_summary.columns = ["_".join(x) for x in huc12_summary.columns.ravel()]
+            self.huc12_summary = huc12_summary
+        except:
+            self.huc12_summary = pd.DataFrame(columns=['HUC12','acute_human_mean', 'acute_human_max'])
+        return
 
 
     def append_sam_data(self):
         mongo_db = self.connect_to_mongoDB()
         posts = mongo_db.posts
-        posts.update_one({'_id': self.task_id},{'$set': {'huc8_summary': self.huc8_summary.to_json(orient='index')}})
+        posts.update_one({'_id': self.task_id},{'$set': {'huc8_summary': self.huc8_summary.to_json(orient='index'),
+                                                         'huc12_summary': self.huc12_summary.to_json(orient='index')}})
         return
 
 
