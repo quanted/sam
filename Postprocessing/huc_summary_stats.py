@@ -13,7 +13,7 @@ import requests
 from celery_cgi import celery
 
 IN_DOCKER = os.environ.get("IN_DOCKER")
-IN_DOCKER = "False"
+#IN_DOCKER = "False"
 
 
 class SamPostprocessor(object):
